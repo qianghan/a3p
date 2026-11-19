@@ -17,7 +17,7 @@ import { buildTaxRowView } from '@/lib/expense-tax-row';
 import { GET } from '@/app/api/v1/agentbook-expense/tax-codes/route';
 import { NextRequest } from 'next/server';
 
-const AU = { jurisdiction: 'au', region: 'NSW', gstRegistered: true, qstRegistered: null };
+const AU = { jurisdiction: 'au', region: 'NSW', gstRegistered: true, qstRegistered: null, currency: 'AUD' };
 
 describe('buildTaxRowView — visibility', () => {
   it('US tenants never see the row', () => {
@@ -80,6 +80,7 @@ describe('GET /agentbook-expense/tax-codes', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(body.data.preview.grossCents).toBe(11000);
+    expect(body.data.currency).toBe('AUD');
   });
   it('ignores a non-integer amount', async () => {
     db.cfg = AU;

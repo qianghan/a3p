@@ -23,7 +23,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const q = request.nextUrl.searchParams;
     const cfg = await db.abTenantConfig.findUnique({
       where: { userId: tenantId },
-      select: { jurisdiction: true, region: true, gstRegistered: true, qstRegistered: true },
+      select: { jurisdiction: true, region: true, gstRegistered: true, qstRegistered: true, currency: true },
     });
     const rawAmount = q.get('amountCents');
     const amount = rawAmount !== null && /^\d{1,12}$/.test(rawAmount) ? Number(rawAmount) : undefined;

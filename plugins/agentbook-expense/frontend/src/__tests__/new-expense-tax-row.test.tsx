@@ -9,9 +9,9 @@ import { NewExpensePage } from '../pages/NewExpense';
  * (GET /tax-codes, lib/expense-tax-row); this fake server returns the views
  * that endpoint gives each market, and computes AU GST previews (10%).
  */
-type View = { visible: boolean; codes: Array<{ code: string; recoverable: boolean }>; defaultCode: string | null; registrationPrompt: boolean };
+type View = { visible: boolean; codes: Array<{ code: string; recoverable: boolean }>; defaultCode: string | null; registrationPrompt: boolean; currency?: string };
 const HIDDEN: View = { visible: false, codes: [], defaultCode: null, registrationPrompt: false };
-const AU: View = { visible: true, codes: ['GST', 'CAP', 'FRE', 'INP', 'NTR'].map((code) => ({ code, recoverable: true })), defaultCode: 'GST', registrationPrompt: false };
+const AU: View = { visible: true, codes: ['GST', 'CAP', 'FRE', 'INP', 'NTR'].map((code) => ({ code, recoverable: true })), defaultCode: 'GST', registrationPrompt: false, currency: 'AUD' };
 const ON: View = { visible: true, codes: ['HST', 'ZERO', 'EXEMPT', 'OUT_OF_SCOPE'].map((code) => ({ code, recoverable: true })), defaultCode: 'HST', registrationPrompt: false };
 const QC: View = { visible: true, codes: ['GST_QST', 'GST', 'ZERO'].map((code) => ({ code, recoverable: true })), defaultCode: 'GST_QST', registrationPrompt: false };
 
@@ -108,7 +108,7 @@ describe('NewExpense — tax row saving', () => {
     renderPage();
     amount('100');
     fireEvent.click(await screen.findByTestId('new-expense-tax-mode-exclusive'));
-    await waitFor(() => expect(screen.getByTestId('new-expense-tax-amount').textContent).toContain('1000'));
+    await waitFor(() => expect(screen.getByTestId('new-expense-tax-amount').textContent).toContain(new Intl.NumberFormat('en-US', { style: 'currency', currency: 'AUD' }).format(10)));
     submit();
     await waitFor(() => expect(post()).toBeTruthy());
     expect(post()!.body).toMatchObject({ amountCents: 11000, taxCode: 'GST', taxAmountCents: 1000 });

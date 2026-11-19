@@ -34,7 +34,7 @@ export function shellFor(locale: string): ShellContext {
     locale,
     t,
     formatMoney: (c: number) => `$${c}`,
-    formatCurrency: (c: number) => `$${c}`,
+    formatCurrency: (c: number, cur = 'USD') => (cur === 'USD' ? `$${c}` : new Intl.NumberFormat('en-US', { style: 'currency', currency: cur }).format(c / 100)),
     formatDate: (d: string | Date) => String(d),
     formatDateOnly: (d: string | Date) => String(d),
     formatNumber: (n: number) => String(n),

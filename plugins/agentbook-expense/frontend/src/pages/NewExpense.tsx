@@ -19,6 +19,8 @@ interface TaxRowView {
   defaultCode: string | null;
   registrationPrompt: boolean;
   preview: { taxCode: string; inclusive: boolean; grossCents: number; netCents: number; taxCents: number } | null;
+  /** Tenant currency; the preview amounts are in it. */
+  currency: string | null;
 }
 type TaxMode = 'inclusive' | 'exclusive';
 
@@ -79,7 +81,7 @@ export const NewExpensePage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount, formatMoney, t } = useI18n();
+  const { parseAmount, formatCurrency, t } = useI18n();
   // PR 2b.8 tax row: shown only when the server's view says so (AU/CA registrants and unknowns).
   const [taxView, setTaxView] = useState<TaxRowView | null>(null);
   const [taxCode, setTaxCode] = useState<string | null>(null);
@@ -432,12 +434,12 @@ export const NewExpensePage: React.FC = () => {
             </div>
             {taxView.preview && (
               <p data-testid="new-expense-tax-amount" className="text-xs text-muted-foreground">
-                {t('expenses_ui.tax_amount', { tax: formatMoney(taxView.preview.taxCents), total: formatMoney(taxView.preview.grossCents) })}
+                {t('expenses_ui.tax_amount', { tax: formatCurrency(taxView.preview.taxCents, taxView.currency ?? 'USD'), total: formatCurrency(taxView.preview.grossCents, taxView.currency ?? 'USD') })}
               </p>
             )}
             {receiptStatus.kind === 'extracted' && (receiptStatus.result.tax_cents ?? 0) > 0 && (
               <p className="text-xs text-muted-foreground">
-                {t('expenses_ui.tax_printed', { label: receiptStatus.result.tax_label ?? '', amount: formatMoney(receiptStatus.result.tax_cents ?? 0) })}
+                {t('expenses_ui.tax_printed', { label: receiptStatus.result.tax_label ?? '', amount: formatCurrency(receiptStatus.result.tax_cents ?? 0, taxView?.currency ?? 'USD') })}
               </p>
             )}
             {taxView.registrationPrompt && (

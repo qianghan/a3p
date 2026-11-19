@@ -32,6 +32,8 @@ export interface TaxRowView {
   defaultCode: string | null;
   registrationPrompt: boolean;
   preview: TaxRowPreview | null;
+  /** Tenant currency (ISO 4217): the preview amounts are in it; UIs format with it. */
+  currency: string | null;
 }
 
 export interface TaxRowQuery {
@@ -40,9 +42,9 @@ export interface TaxRowQuery {
   taxCode?: string;
 }
 
-const HIDDEN: TaxRowView = { visible: false, codes: [], defaultCode: null, registrationPrompt: false, preview: null };
+const HIDDEN: TaxRowView = { visible: false, codes: [], defaultCode: null, registrationPrompt: false, preview: null, currency: null };
 
-export function buildTaxRowView(t: TenantTaxContext | null, q: TaxRowQuery): TaxRowView {
+export function buildTaxRowView(t: (TenantTaxContext & { currency?: string | null }) | null, q: TaxRowQuery): TaxRowView {
   const j = taxJurisdictionOf(t?.jurisdiction);
   if (!t || (j !== 'au' && j !== 'ca') || t.gstRegistered === false) return HIDDEN;
   const codes = tenantTaxCodes(t).map((c) => ({ code: c.code, recoverable: c.recoverable }));
@@ -60,5 +62,5 @@ export function buildTaxRowView(t: TenantTaxContext | null, q: TaxRowQuery): Tax
       preview = null;
     }
   }
-  return { visible: true, codes, defaultCode, registrationPrompt, preview };
+  return { visible: true, codes, defaultCode, registrationPrompt, preview, currency: t.currency ?? null };
 }
