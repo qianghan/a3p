@@ -333,5 +333,6 @@
   "gst_basis_cash": "现金制 — 付款时",
   "gst_basis_help": "决定采购的税款抵免计入 GST 申报的哪个期间。",
   "gst_registered_label_ca": "已注册商品及服务税/统一销售税（GST/HST）？",
-  "gst_basis_label_ca": "GST/HST 申报基础"
+  "gst_basis_label_ca": "GST/HST 申报基础",
+  "gst_basis_open_bills": "未结清账单：{count} 张。在付清之前，损益表和资产负债表按权责发生制编制。销售税申报仍在付款时计入采购。"
 }

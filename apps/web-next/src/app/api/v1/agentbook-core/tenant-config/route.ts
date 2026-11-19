@@ -11,6 +11,7 @@ import { isSelectableLocale, canonicalizeLocale, localeValidationError } from '@
 import { isI18nLocalesEnabled } from '@/lib/agentbook-i18n-flag';
 import { publicErrorMessage } from '@/lib/api-error';
 
+import { cashBasisBlock } from '@/lib/cash-basis-guard';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -29,7 +30,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // The shell already fetches this endpoint once to resolve locale, so the
     // translation gate rides along rather than costing a second round trip.
     const i18nLocalesEnabled = await isI18nLocalesEnabled();
-    return NextResponse.json({ success: true, data: config, i18nLocalesEnabled });
+    // PR 3bc.8: Settings explains that cash-basis reports are off while open
+    // at_entry bills exist (top-level, never part of the PUT-able config).
+    const cashBasisDisabled = await cashBasisBlock(db, tenantId);
+    return NextResponse.json({ success: true, data: config, i18nLocalesEnabled, cashBasisDisabled });
   } catch (err) {
     console.error('[agentbook-core/tenant-config GET] failed:', err);
     return NextResponse.json(

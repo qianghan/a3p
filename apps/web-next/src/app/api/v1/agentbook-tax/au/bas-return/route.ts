@@ -91,7 +91,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       wages,
     });
 
-    return NextResponse.json({ success: true, data: { ...result, gstReportingBasis: gstBasis } });
+    return NextResponse.json({ success: true, data: { ...result, gstReportingBasis: gstBasis, salesBasis: 'invoice_date' } }); // M6: sales (1A/105) stay invoice-dated on both bases
   } catch (err) {
     console.error('[agentbook-tax/au/bas-return] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });

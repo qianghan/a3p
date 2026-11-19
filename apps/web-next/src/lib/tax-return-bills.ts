@@ -14,7 +14,7 @@
  *            CUMULATIVE: payment k gets round(x·cumAfter/T) − round(x·cumBefore/T)
  *            (payments ordered by date, createdAt, id), so the final payment
  *            takes the remainder and a fully paid bill sums to its exact totals.
- *            Legacy at_payment bills that are 'paid' with no payment rows count
+ *            Legacy at_payment bills (never at_entry) 'paid' with no payment rows count
  *            100% on paidDate, else the date of their payment journal entry
  *            (bill.journalEntryId), else — not inferable — on accrual dating.
  *
@@ -103,7 +103,10 @@ export function billPurchasesInPeriod(
     }
     const payments = livePayments(bill);
     if (payments.length === 0) {
-      if (bill.status !== 'paid') continue; // nothing paid yet → nothing on cash basis
+      // Nothing paid yet → nothing on cash basis. An at_entry bill is always
+      // paid through payment rows, so with none live it has no cash date:
+      // legacy inference applies to at_payment rows only.
+      if (bill.status !== 'paid' || bill.postingMode === 'at_entry') continue;
       const paidOn: Date =
         bill.paidDate ?? (bill.journalEntryId ? opts.journalDates?.get(bill.journalEntryId) : undefined) ?? accrualDate;
       if (inWindow(paidOn, opts.gte, opts.lte)) out.push(...lines);
@@ -146,7 +149,19 @@ export async function loadBillPurchases(
           ...base,
           OR: [
             { payments: { some: { voidedAt: null, date: window } } },
-            { status: 'paid', payments: { none: { voidedAt: null } } },
+            // Legacy at_payment paid rows, bounded to those that can land in the
+            // window: paidDate in it; or no paidDate and a journal entry (its
+            // date is resolved below; a payment cannot precede creation); or
+            // neither, dated by billDate ?? createdAt.
+            {
+              status: 'paid', postingMode: { not: 'at_entry' }, payments: { none: { voidedAt: null } },
+              OR: [
+                { paidDate: window },
+                { paidDate: null, journalEntryId: { not: null }, createdAt: { lte } },
+                { paidDate: null, journalEntryId: null, billDate: window },
+                { paidDate: null, journalEntryId: null, billDate: null, createdAt: window },
+              ],
+            },
           ],
         };
   const bills: Row[] = await db.abBill.findMany({

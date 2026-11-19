@@ -13,7 +13,7 @@ import { memDb } from '@/__tests__/helpers/mem-db';
 import { tenantReq, json } from '@/__tests__/helpers/route-request';
 import { GET as basGET } from '@/app/api/v1/agentbook-tax/au/bas-return/route';
 import { GET as caGET } from '@/app/api/v1/agentbook-tax/ca/gst-hst-return/route';
-import { proRataShare } from '@/lib/tax-return-bills';
+import { proRataShare, billPurchasesInPeriod } from '@/lib/tax-return-bills';
 
 const day = (s: string) => new Date(`${s}T00:00:00.000Z`);
 const pay = (id: string, date: string, amountCents: number, voidedAt: Date | null = null) =>
@@ -120,5 +120,58 @@ describe('CA GST/HST line 108 includes bills', () => {
       await caGET(tenantReq('/api/v1/agentbook-tax/ca/gst-hst-return?periodStart=2026-07-01&periodEnd=2026-09-30', 't1')),
     )).data;
     expect(d.line108ItcCents).toBe(3091);
+  });
+});
+
+describe('review follow-ups (M1–M3)', () => {
+  it('M1: a paid at_entry bill with no live payments is NOT dated by its entry date on cash basis', async () => {
+    seed('cash');
+    // G: at_entry, status paid (inconsistent legacy row), billDate + paidDate in Q3, its only payment voided.
+    await memDb.abBill.create({ data: bill({ id: 'G', status: 'paid', amountCents: 1100, billDate: day('2026-08-01'), createdAt: day('2026-08-01'),
+      paidDate: day('2026-08-02'), lines: [{ id: 'g1', taxCode: 'GST', amountCents: 1100, taxCents: 100, recoverableTaxCents: 100, categoryId: null }],
+      payments: [pay('gv', '2026-08-02', 1100, day('2026-08-03'))] }) });
+    const d = await bas('2026-07-01', '2026-09-30');
+    expect(d.label1BGstOnPurchasesCents).toBe(1670); // unchanged from the base Q3 cash fixture; G adds nothing
+  });
+
+  it('M2: every legacy-paid branch of the cash query is date-bounded', async () => {
+    seed('cash');
+    const spy = vi.spyOn(memDb.abBill, 'findMany');
+    await bas('2026-07-01', '2026-09-30');
+    const where = spy.mock.calls[0][0].where as { OR: Array<Record<string, any>> };
+    const legacy = where.OR.find((b) => b.status === 'paid')!;
+    expect(legacy.postingMode).toEqual({ not: 'at_entry' });
+    for (const branch of legacy.OR) {
+      const bounded = ['paidDate', 'billDate', 'createdAt'].some((k) => branch[k] && typeof branch[k] === 'object' && ('lte' in branch[k]));
+      expect(bounded).toBe(true);
+    }
+    spy.mockRestore();
+  });
+
+  it('M3: 10001¢ bill, ITC 909, payments 3333/3334/3334 → 303/303/303 = 909', () => {
+    // round(909·3333/10001)=round(302.94)=303; round(909·6667/10001)=round(605.97)=606 → 303; 909−606 = 303
+    const s = [proRataShare(909, 0, 3333, 10001), proRataShare(909, 3333, 6667, 10001), proRataShare(909, 6667, 10001, 10001)];
+    expect(s).toEqual([303, 303, 303]);
+    expect(s.reduce((a, b) => a + b, 0)).toBe(909);
+  });
+});
+
+describe('M1 (pure rule, independent of the query)', () => {
+  it('cash: paid at_entry bill with no live payments → nothing; same row at_payment → its paidDate', () => {
+    const row = bill({ id: 'G', status: 'paid', amountCents: 1100, taxCents: 100, createdAt: day('2026-08-01'), paidDate: day('2026-08-02') });
+    const opts = { basis: 'cash' as const, gte: day('2026-07-01'), lte: day('2026-09-30') };
+    expect(billPurchasesInPeriod([row], opts)).toEqual([]);
+    expect(billPurchasesInPeriod([{ ...row, postingMode: 'at_payment' }], opts)).toEqual([
+      { taxCode: null, recoverableTaxCents: 0, taxPaidCents: 100, grossCents: 1100, categoryId: null },
+    ]);
+  });
+});
+
+describe('M6: sales basis is labelled', () => {
+  it('cash BAS says sales are by invoice date', async () => {
+    seed('cash');
+    const body = await json<{ data: { gstReportingBasis: string; salesBasis: string } }>(
+      await basGET(tenantReq('/api/v1/agentbook-tax/au/bas-return?periodStart=2026-07-01&periodEnd=2026-09-30', 't1')));
+    expect([body.data.gstReportingBasis, body.data.salesBasis]).toEqual(['cash', 'invoice_date']);
   });
 });
