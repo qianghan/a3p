@@ -324,7 +324,6 @@
   "gst_help_registered": "Invoices carry 10% GST, headed “Tax Invoice”.",
   "gst_help_not_registered": "Invoices carry no GST, headed “Invoice”.",
   "gst_help_unknown": "Unanswered: invoices carry 10% GST. Only a GST-registered business may charge it. Compulsory above A$75,000 turnover.",
-  "gst_registered_ca_hint": "(Canada — GST/HST)",
   "gst_prompt_set_registration": "Tell us whether you are registered. Until you do, purchases are recorded at the full amount with no tax credit.",
   "qst_registered_label": "Registered for QST? (Quebec)",
   "qst_help_registered": "QST paid on purchases is claimed back as an input tax credit.",
@@ -332,5 +331,6 @@
   "gst_basis_label": "GST reporting basis",
   "gst_basis_accrual": "Accrual — when billed",
   "gst_basis_cash": "Cash — when paid",
-  "gst_basis_help": "Decides which period a purchase’s tax credit lands in on your GST return."
+  "gst_basis_help": "Decides which period a purchase’s tax credit lands in on your GST return.",
+  "gst_registered_label_ca": "Registered for GST/HST?"
 }

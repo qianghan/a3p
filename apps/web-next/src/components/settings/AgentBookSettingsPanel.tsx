@@ -15,6 +15,7 @@ import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@
 import { offerableLocales } from '@agentbook/i18n/catalog-client';
 import { SubscribeModal } from './SubscribeModal';
 import { useT } from '@/hooks/use-t';
+import { isQuebecRegion } from '@/lib/region-codes';
 
 const CURRENCY_OPTIONS = ['USD', 'CAD', 'GBP', 'AUD', 'EUR', 'JPY', 'CHF', 'MXN', 'BRL', 'INR'];
 
@@ -2133,10 +2134,10 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                       is not GST registration, and guessing either way charges
                       the wrong amount to a real client. */}
                   <label className="block text-sm font-medium text-foreground">
-                    {t('core_ui.gst_registered_label')}{' '}
-                    <span className="font-normal text-muted-foreground">
-                      {form.jurisdiction === 'ca' ? t('core_ui.gst_registered_ca_hint') : t('core_ui.gst_registered_au_hint')}
-                    </span>
+                    {form.jurisdiction === 'ca' ? t('core_ui.gst_registered_label_ca') : t('core_ui.gst_registered_label')}
+                    {form.jurisdiction === 'au' && (
+                      <>{' '}<span className="font-normal text-muted-foreground">{t('core_ui.gst_registered_au_hint')}</span></>
+                    )}
                   </label>
                   <select
                     data-testid="reg-gst-select"
@@ -2164,7 +2165,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   )}
                 </div>
               )}
-              {form.jurisdiction === 'ca' && (form.region ?? '').toUpperCase() === 'QC' && (
+              {form.jurisdiction === 'ca' && isQuebecRegion(form.region) && (
                 <div data-testid="reg-qst">
                   <label className="block text-sm font-medium text-foreground">{t('core_ui.qst_registered_label')}</label>
                   <select

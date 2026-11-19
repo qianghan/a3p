@@ -74,3 +74,36 @@ describe('registration flags visibility', () => {
     expect(puts[0].qstRegistered).toBe(true);
   });
 });
+
+import { isQuebecRegion } from '@/lib/region-codes';
+import { CATALOG } from '@agentbook/i18n/catalog';
+
+describe('isQuebecRegion', () => {
+  it.each(['QC', 'qc', ' QC ', 'Quebec', 'quebec', 'Québec', 'québec', 'QUÉBEC', 'Québec'])('accepts %s', (v) => {
+    expect(isQuebecRegion(v)).toBe(true);
+  });
+  it.each(['ON', 'Ontario', '', null, undefined, 'Quebec City'])('rejects %s', (v) => {
+    expect(isQuebecRegion(v as string | null | undefined)).toBe(false);
+  });
+});
+
+describe('CA wording is not Australian (per locale)', () => {
+  const key = 'gst_registered_label_ca';
+  it.each(['en', 'fr-CA', 'zh-CN'])('%s CA label', (loc) => {
+    const v = (CATALOG[loc] as Record<string, Record<string, string>>).core_ui[key];
+    expect(v).toMatch(/GST|TPS/);
+    expect(v).not.toMatch(/austral|澳大利亚|Australia/i);
+  });
+});
+
+describe('CA render in Quebec spelled out', () => {
+  it('shows QST for region "Québec"', async () => {
+    mount({ jurisdiction: 'ca', region: 'Québec' });
+    await screen.findByTestId('reg-qst');
+  });
+  it('CA does not render the Australian hint', async () => {
+    mount({ jurisdiction: 'ca', region: 'ON' });
+    await screen.findByTestId('reg-gst');
+    expect(screen.getByTestId('reg-gst').textContent).not.toMatch(/Gst registered au hint/);
+  });
+});

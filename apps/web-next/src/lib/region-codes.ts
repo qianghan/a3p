@@ -59,3 +59,9 @@ export function normalizeRegionCode(jurisdiction: string | null | undefined, reg
   // value (uppercased) without rejecting, so AU states etc. still work.
   return { ok: true, value: upper };
 }
+
+/** True for 'QC', 'Quebec', 'Québec' in any case / Unicode form, trimmed. */
+export function isQuebecRegion(region: string | null | undefined): boolean {
+  const r = normalizeRegionCode('ca', (region ?? '').normalize('NFC'));
+  return r.ok && r.value === 'QC';
+}
