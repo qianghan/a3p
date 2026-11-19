@@ -160,5 +160,9 @@
   "bill_payment_period_closed": "Cette date de paiement tombe dans une période fermée. Rouvrez la période ou choisissez une autre date; la facture reste ouverte.",
   "bill_payment_account_missing": "Il manque à votre plan comptable un compte requis pour ce paiement. La facture reste ouverte.",
   "bill_payment_conflict": "Cette facture a déjà été payée ou modifiée. Actualisez pour voir son état actuel.",
-  "bill_payment_failed": "Le paiement n’a pas pu être enregistré. La facture reste ouverte; veuillez réessayer."
+  "bill_payment_failed": "Le paiement n’a pas pu être enregistré. La facture reste ouverte; veuillez réessayer.",
+  "bill_label": "Facture",
+  "bill_due": "À payer",
+  "bill_overdue": "En retard",
+  "bill_paid": "Payée"
 }

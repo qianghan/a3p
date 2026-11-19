@@ -21,6 +21,7 @@ import type {
   ReviewResult,
   FromReceiptResult,
 } from '@/lib/mobile/types';
+import type { PurchaseRow } from '@/lib/purchases-view';
 import { DOC_FILTER_PARAMS } from '@/lib/mobile/doc-filters';
 import { toMobileDoc } from '@/lib/mobile/doc-mapper';
 import { RECEIPT_MAX_BYTES, IDEMPOTENCY_KEY_RE, MAX_AMOUNT_CENTS } from '@/lib/mobile/receipt-limits';
@@ -253,6 +254,22 @@ export async function listDocs(p: { filter?: DocFilter; q?: string; cursor?: str
     counts: isCounts(meta.counts) ? meta.counts : null,
     total: typeof meta.total === 'number' && Number.isInteger(meta.total) && meta.total >= 0 ? meta.total : null,
   };
+}
+
+/**
+ * Bill rows for the Docs list (PR 3bc.7). Rows the server sent malformed are
+ * dropped rather than rendered: a bill row needs a string id, ISO date, integer
+ * total and a due|paid badge.
+ */
+export async function listBillRows(p: { limit?: number; offset?: number } = {}): Promise<PurchaseRow[]> {
+  const qs = new URLSearchParams({ kind: 'bill', limit: String(Math.min(clampLimit(p.limit), 100)) });
+  if (p.offset) qs.set('offset', String(Math.max(0, Math.floor(p.offset))));
+  const env = await call<PurchaseRow[]>(`${EXPENSE}/purchases?${qs.toString()}`);
+  return (Array.isArray(env.data) ? env.data : []).filter(
+    (r): r is PurchaseRow =>
+      !!r && r.kind === 'bill' && typeof r.id === 'string' && typeof r.date === 'string' && !isNaN(Date.parse(r.date)) &&
+      Number.isInteger(r.amountCents) && (r.status === 'due' || r.status === 'paid'),
+  );
 }
 
 export async function getDoc(id: string): Promise<MobileDoc> {

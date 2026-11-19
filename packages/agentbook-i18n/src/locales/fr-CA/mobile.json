@@ -290,7 +290,12 @@
     "load_failed": "Impossible de charger ce document.",
     "archived_banner": "Archivé. Masqué de vos listes, mais ses montants comptent toujours.",
     "needs_review_banner": "En attente de votre révision",
-    "confirm_period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date."
+    "confirm_period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date.",
+    "bill_label": "Facture fournisseur",
+    "bill_due_pill": "À payer",
+    "bill_overdue_pill": "En retard",
+    "bill_paid_pill": "Payée",
+    "bill_remaining": "Solde :"
   },
   "capture": {
     "title": "Saisir une dépense",

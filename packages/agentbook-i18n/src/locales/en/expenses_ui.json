@@ -160,5 +160,9 @@
   "bill_payment_period_closed": "This payment date is in a closed period. Reopen the period or choose another date; the bill is still open.",
   "bill_payment_account_missing": "Your chart of accounts is missing an account this payment needs. The bill is still open.",
   "bill_payment_conflict": "This bill was already paid or changed. Refresh to see its current state.",
-  "bill_payment_failed": "The payment could not be recorded. The bill is still open; please try again."
+  "bill_payment_failed": "The payment could not be recorded. The bill is still open; please try again.",
+  "bill_label": "Bill",
+  "bill_due": "Due",
+  "bill_overdue": "Overdue",
+  "bill_paid": "Paid"
 }

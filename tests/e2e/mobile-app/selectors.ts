@@ -14,7 +14,7 @@ export const SEL = {
   },
   docs: {
     screen: 'docs-screen', skeleton: 'docs-skeleton', error: 'docs-error', stale: 'docs-stale', empty: 'docs-empty',
-    row: 'doc-item', search: 'docs-search', filterPrefix: 'docs-filter-',
+    row: 'doc-item', billRow: 'bill-item', search: 'docs-search', filterPrefix: 'docs-filter-',
   },
   viewer: {
     screen: 'doc-viewer', skeleton: 'doc-skeleton', error: 'doc-viewer-error',
@@ -46,6 +46,7 @@ export const SEL_ELEMENTS: Record<string, string> = {
   'home-kpi-sheet': 'KPI breakdown sheet',
   'docs-screen': 'Docs page root', 'docs-skeleton': 'Docs loading skeleton', 'docs-error': 'Docs error state (contains Retry)',
   'docs-stale': 'Docs offline/stale label', 'docs-empty': 'Docs empty state', 'doc-item': 'each list/grid item (a link to /app/docs/[id])',
+  'bill-item': 'each bill row among the All documents (a link to the desktop Bills page; carries a Due/Overdue/Paid pill)',
   'docs-search': 'search input', 'docs-filter-': 'each filter chip as `docs-filter-${filter}` with aria-pressed',
   'doc-viewer': 'viewer root', 'doc-skeleton': 'viewer loading state', 'doc-viewer-error': 'viewer error / not found state',
   'doc-viewer-vendor': 'vendor field (input)', 'doc-amount': 'amount (text)',

@@ -24,6 +24,7 @@ import MobileDocsPage from '@/app/app/docs/page';
 import './_load-tolerance';
 
 const EXPENSES = '/api/v1/agentbook-expense/expenses';
+const PURCHASES = '/api/v1/agentbook-expense/purchases';
 const TENANT = '/api/v1/agentbook-core/tenant-config';
 const PENDING = '/api/v1/agentbook-core/auto-categorize/pending';
 const REVIEW = '/api/v1/agentbook-core/auto-categorize/review';
@@ -932,5 +933,53 @@ describe('Docs list — limits the server enforces', () => {
     renderPage();
     await rowsOf();
     expect(screen.getByTestId('doc-list').getAttribute('style')).toContain('minmax(114px, 1fr)');
+  });
+});
+
+describe('Docs list — bills (PR 3bc.7)', () => {
+  const bill = (o: Raw = {}): Raw => ({
+    kind: 'bill', id: 'b1', date: '2026-10-05T00:00:00.000Z', vendor: 'Acme Supplies', amountCents: 12000,
+    status: 'due', outstandingCents: 12000, overdue: false, ...o,
+  });
+
+  it('shows each bill once among the documents, newest first, with Due / Overdue / Paid pills and the total', async () => {
+    mockApi(() => listOf([raw({ id: 'e1', date: '2026-10-07' }), raw({ id: 'e2', date: '2026-10-01', vendorName: 'Cafe' })]), {
+      [PURCHASES]: () => ok([
+        bill(),
+        bill({ id: 'b2', vendor: 'Landlord', status: 'paid', outstandingCents: 0, amountCents: 90000, date: '2026-10-03T00:00:00.000Z' }),
+        bill({ id: 'b3', vendor: 'Phone Co', overdue: true, status: 'due', amountCents: 8000, outstandingCents: 3000, date: '2026-10-02T00:00:00.000Z' }),
+      ]),
+    });
+    renderPage();
+    const bills = await screen.findAllByTestId('bill-item');
+    expect(bills).toHaveLength(3);
+    expect(within(bills[0]).getByText('Acme Supplies')).toBeInTheDocument();
+    expect(within(bills[0]).getByText('Due')).toBeInTheDocument();
+    expect(within(bills[0]).getByText(moneyText(12000, 'CAD', 'en'))).toBeInTheDocument();
+    expect(within(bills[1]).getByText('Paid')).toBeInTheDocument();
+    expect(within(bills[1]).getByText(moneyText(90000, 'CAD', 'en'))).toBeInTheDocument();
+    expect(within(bills[2]).getByText('Overdue')).toBeInTheDocument();
+    expect(within(bills[2]).getByText(moneyText(3000, 'CAD', 'en'))).toBeInTheDocument();
+    expect(bills[0]).toHaveAttribute('href', '/agentbook/bills');
+    const order = screen.getAllByRole('listitem').map((li) => li.textContent ?? '');
+    expect(order.findIndex((x) => x.includes('Acme'))).toBeLessThan(order.findIndex((x) => x.includes('Cafe')));
+    expect(order.findIndex((x) => x.includes('Blue Bottle'))).toBeLessThan(order.findIndex((x) => x.includes('Acme')));
+    expect(screen.getAllByTestId('doc-item')).toHaveLength(2);
+  });
+
+  it('does not ask for bills on a filtered list, and a failed bill request leaves the documents alone', async () => {
+    nav.params = new URLSearchParams('filter=needs-review');
+    const f = mockApi(() => listOf([raw()]), { [PURCHASES]: () => jsonResponse(500, { success: false, error: 'boom' }) });
+    renderPage();
+    await rowsOf();
+    expect(f.mock.calls.some((c) => String(c[0]).startsWith(PURCHASES))).toBe(false);
+    expect(screen.queryByTestId('bill-item')).toBeNull();
+  });
+
+  it('survives the bill request failing on the All list', async () => {
+    mockApi(() => listOf([raw()]), { [PURCHASES]: () => jsonResponse(500, { success: false, error: 'boom' }) });
+    renderPage();
+    expect(await rowsOf()).toHaveLength(1);
+    expect(screen.queryByTestId('bill-item')).toBeNull();
   });
 });

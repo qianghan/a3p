@@ -10,6 +10,7 @@ import {
   getHome,
   getUpcoming,
   listDocs,
+  listBillRows,
   getDoc,
   patchDoc,
   categorizeDoc,
@@ -564,5 +565,23 @@ describe('remindInvoice', () => {
   ])('refuses %s without calling anything', async (endpoint) => {
     await expect(remindInvoice(endpoint)).rejects.toMatchObject({ code: 'invalid_endpoint' });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('listBillRows', () => {
+  const BILL = { kind: 'bill', id: 'b1', date: '2026-10-05T00:00:00.000Z', vendor: 'Acme', amountCents: 12000, status: 'due', outstandingCents: 7000 };
+  it('asks the purchases route for bills only and returns well-formed rows', async () => {
+    const mock = routeFetch({
+      '/api/v1/agentbook-expense/purchases': () => jsonResponse(200, { success: true, data: [BILL, { ...BILL, id: 'b2', status: 'weird' }, { kind: 'expense', id: 'e1' }, null] }),
+    });
+    const rows = await listBillRows({ limit: 500 });
+    expect(rows.map((r) => r.id)).toEqual(['b1']);
+    const url = String(mock.mock.calls[0][0]);
+    expect(url).toContain('kind=bill');
+    expect(url).toContain('limit=100');
+  });
+  it('maps a failure to ApiError', async () => {
+    routeFetch({ '/api/v1/agentbook-expense/purchases': () => jsonResponse(401, { success: false, error: 'unauthorized' }) });
+    await expect(listBillRows()).rejects.toMatchObject({ status: 401, code: 'unauthorized' });
   });
 });

@@ -290,7 +290,12 @@
     "load_failed": "无法加载该单据。",
     "archived_banner": "已归档。它不会出现在列表中，但金额仍然计入。",
     "needs_review_banner": "需要您审核",
-    "confirm_period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。"
+    "confirm_period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。",
+    "bill_label": "账单",
+    "bill_due_pill": "待付",
+    "bill_overdue_pill": "已逾期",
+    "bill_paid_pill": "已付",
+    "bill_remaining": "未付："
   },
   "capture": {
     "title": "记录支出",

@@ -160,5 +160,9 @@
   "bill_payment_period_closed": "该付款日期位于已关闭的会计期间。请重新打开该期间或选择其他日期；账单仍为未付。",
   "bill_payment_account_missing": "您的会计科目表缺少此付款所需的科目。账单仍为未付。",
   "bill_payment_conflict": "此账单已付款或已被修改。请刷新查看当前状态。",
-  "bill_payment_failed": "无法记录付款。账单仍为未付，请重试。"
+  "bill_payment_failed": "无法记录付款。账单仍为未付，请重试。",
+  "bill_label": "账单",
+  "bill_due": "待付",
+  "bill_overdue": "已逾期",
+  "bill_paid": "已付"
 }
