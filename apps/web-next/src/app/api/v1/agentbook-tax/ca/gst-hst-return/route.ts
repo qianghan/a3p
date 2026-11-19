@@ -17,6 +17,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { computeGstHstReturn } from '@agentbook/jurisdictions/ca/gst-hst-return';
 import { publicErrorMessage } from '@/lib/api-error';
 import { isMealsAccount } from '@/lib/expense-tax';
+import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // ITCs — business (non-personal) expenses in the period; taxAmountCents
       // is the GST/HST paid portion recorded at booking.
       db.abExpense.findMany({
-        where: { tenantId, isPersonal: false, date: { gte, lte } },
+        where: { tenantId, isPersonal: false, ...liveExpenseWhere(), date: { gte, lte } },
         select: { amountCents: true, taxAmountCents: true, taxCode: true, recoverableTaxCents: true, categoryId: true },
       }),
     ]);

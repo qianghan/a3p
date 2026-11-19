@@ -16,6 +16,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { computeBasReturn } from '@agentbook/jurisdictions/au/bas-return';
 import { publicErrorMessage } from '@/lib/api-error';
+import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         select: { amountCents: true, taxCents: true },
       }),
       db.abExpense.findMany({
-        where: { tenantId, isPersonal: false, date: { gte, lte } },
+        where: { tenantId, isPersonal: false, ...liveExpenseWhere(), date: { gte, lte } },
         select: { amountCents: true, taxAmountCents: true, taxCode: true, recoverableTaxCents: true },
       }),
       // PAYG-W (W1/W2): pay runs paid in the BAS period. federalTaxCents is the

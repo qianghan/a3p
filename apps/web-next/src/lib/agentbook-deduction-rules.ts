@@ -20,6 +20,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { mealDeductionNote } from './agentbook-deduction-copy';
+import { liveExpenseWhere } from './agentbook-live-expense';
 
 export interface RuleContext {
   tenantId: string;
@@ -96,6 +97,7 @@ const meal_with_client_invoice: Rule = async (ctx) => {
       tenantId: ctx.tenantId,
       date: { gte: since, lte: ctx.asOf },
       isPersonal: false,
+      ...liveExpenseWhere(),
       isDeductible: false,
       ...(mealAccount.id ? { categoryId: mealAccount.id } : {}),
     },
@@ -161,6 +163,7 @@ const software_marked_personal: Rule = async (ctx) => {
       tenantId: ctx.tenantId,
       date: { gte: since, lte: ctx.asOf },
       isPersonal: true,
+      ...liveExpenseWhere(),
       ...(swAccount.id ? { categoryId: swAccount.id } : {}),
     },
     include: { vendor: { select: { name: true } } },
@@ -216,6 +219,7 @@ const home_wifi_business_share: Rule = async (ctx) => {
       tenantId: ctx.tenantId,
       date: { gte: since, lte: ctx.asOf },
       isPersonal: false,
+      ...liveExpenseWhere(),
       isDeductible: false,
       ...(utilAccount.id ? { categoryId: utilAccount.id } : {}),
     },

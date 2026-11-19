@@ -160,6 +160,7 @@ export async function buildReceiptsZip(
       isPersonal: false,
       status: 'confirmed',
       date: { gte: start, lt: end },
+      OR: [{ deletedAt: null }, { deletedAt: { gt: end } }],
       receiptUrl: { not: null },
     },
     select: {

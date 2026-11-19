@@ -8,6 +8,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
 import { deductibleCents } from '@/lib/expense-amounts';
+import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const startDate = params.get('startDate');
     const endDate = params.get('endDate');
 
-    const where: Record<string, unknown> = { tenantId, isPersonal: false };
+    const where: Record<string, unknown> = { tenantId, isPersonal: false, ...liveExpenseWhere() };
     if (startDate || endDate) {
       const date: Record<string, Date> = {};
       if (startDate) date.gte = new Date(startDate);
