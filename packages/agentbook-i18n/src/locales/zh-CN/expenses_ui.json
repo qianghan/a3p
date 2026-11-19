@@ -135,5 +135,21 @@
   "category_choose": "选择类别",
   "category_hint_vendor": "根据您过去的支出记住的类别",
   "category_hint_pattern": "根据您过去的支出学习得到（{pct}%）",
-  "category_hint_ai": "AI 建议（{pct}%）——请核对"
+  "category_hint_ai": "AI 建议（{pct}%）——请核对",
+  "tax_code_label": "税码",
+  "tax_mode_label": "金额的输入方式",
+  "tax_inclusive": "金额含税",
+  "tax_exclusive": "税额另加",
+  "tax_amount": "税额 {tax} · 合计 {total}",
+  "tax_printed": "收据上：{label} {amount}",
+  "tax_registration_prompt": "您是否已注册 GST？告诉我们，以便申报进项税抵免。",
+  "tax_registration_link": "打开企业资料",
+  "tax_code_gst_free": "免 GST",
+  "tax_code_input_taxed": "进项课税",
+  "tax_code_no_gst": "无 GST",
+  "tax_code_capital": "资本性采购",
+  "tax_code_zero_rated": "零税率",
+  "tax_code_exempt": "免税",
+  "tax_code_out_of_scope": "不在征税范围",
+  "tax_preview_failed": "无法计算含税总额。请检查网络连接后重试。"
 }

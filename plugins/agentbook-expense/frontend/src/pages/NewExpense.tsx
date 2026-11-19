@@ -12,8 +12,31 @@ const SUGGEST_DEBOUNCE_MS = 300;
 interface CategoryOption { id: string; name: string }
 interface Suggestion { categoryId: string; categoryName: string; confidence: number; source: 'vendor' | 'pattern' | 'ai' }
 
+/** GET /tax-codes (PR 2b.8): the tax row's view, computed server-side by the tax engine. */
+interface TaxRowView {
+  visible: boolean;
+  codes: Array<{ code: string; recoverable: boolean }>;
+  defaultCode: string | null;
+  registrationPrompt: boolean;
+  preview: { taxCode: string; inclusive: boolean; grossCents: number; netCents: number; taxCents: number } | null;
+}
+type TaxMode = 'inclusive' | 'exclusive';
+
+async function fetchTaxRow(q: { amountCents?: number; inclusive: boolean; taxCode?: string | null }): Promise<TaxRowView | null> {
+  const qs = new URLSearchParams();
+  if (q.amountCents && q.amountCents > 0) qs.set('amountCents', String(q.amountCents));
+  qs.set('inclusive', String(q.inclusive));
+  if (q.taxCode) qs.set('taxCode', q.taxCode);
+  const r = await fetch(`${API_BASE}/tax-codes?${qs.toString()}`);
+  const d = await r.json();
+  const v = d?.success ? (d.data as TaxRowView) : null;
+  return v && v.visible === true && Array.isArray(v.codes) ? v : null;
+}
+
 interface OCRResult {
   amount_cents?: number;
+  tax_cents?: number;
+  tax_label?: string | null;
   vendor?: string;
   date?: string;
   description?: string;
@@ -50,7 +73,11 @@ export const NewExpensePage: React.FC = () => {
   //   2. A fr-CA user cannot type '45,50' into these fields at all — the
   //      browser blanks it. That is a usability defect, and routing through
   //      parseAmount means switching a field to type="text" later Just Works.
-  const { parseAmount, t } = useI18n();
+  const { parseAmount, formatMoney, t } = useI18n();
+  // PR 2b.8 tax row: shown only when the server's view says so (AU/CA registrants and unknowns).
+  const [taxView, setTaxView] = useState<TaxRowView | null>(null);
+  const [taxCode, setTaxCode] = useState<string | null>(null);
+  const [taxMode, setTaxMode] = useState<TaxMode>('inclusive');
 
   // Receipt OCR state (G-031 — closes the "non-functional theater" finding).
   const [receiptStatus, setReceiptStatus] = useState<
@@ -97,6 +124,36 @@ export const NewExpensePage: React.FC = () => {
     }, SUGGEST_DEBOUNCE_MS);
     return () => { live = false; clearTimeout(timer); };
   }, [vendor, description]);
+
+  useEffect(() => {
+    if (isPersonal) { setTaxView(null); return; }
+    let live = true;
+    const timer = setTimeout(() => {
+      const cents = amount ? parseAmount(amount).cents : 0;
+      fetchTaxRow({ amountCents: cents > 0 ? cents : undefined, inclusive: taxMode === 'inclusive', taxCode })
+        .then((v) => {
+          if (!live) return;
+          setTaxView(v);
+          if (v && !taxCode && v.defaultCode) setTaxCode(v.defaultCode);
+        })
+        .catch(() => { if (live) setTaxView(null); });
+    }, SUGGEST_DEBOUNCE_MS);
+    return () => { live = false; clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- parseAmount is stable per locale
+  }, [amount, taxCode, taxMode, isPersonal]);
+
+  const taxCodeLabel = (code: string): string => {
+    switch (code) {
+      case 'FRE': return t('expenses_ui.tax_code_gst_free');
+      case 'INP': return t('expenses_ui.tax_code_input_taxed');
+      case 'NTR': return t('expenses_ui.tax_code_no_gst');
+      case 'CAP': return t('expenses_ui.tax_code_capital');
+      case 'ZERO': return t('expenses_ui.tax_code_zero_rated');
+      case 'EXEMPT': return t('expenses_ui.tax_code_exempt');
+      case 'OUT_OF_SCOPE': return t('expenses_ui.tax_code_out_of_scope');
+      default: return code.split('_').join(' + '); // GST, HST, GST + QST: acronyms
+    }
+  };
 
   const handleReceiptFile = async (file: File) => {
     if (!file) return;
@@ -194,8 +251,22 @@ export const NewExpensePage: React.FC = () => {
     setSubmitting(true);
     setSubmitError(null);
     try {
+      // Tax row: the engine converts an exclusive entry to the document gross (amountCents is always gross).
+      let amountCents = parseAmount(amount).cents;
+      let tax: { taxCode?: string; taxAmountCents?: number } = {};
+      if (taxView && taxCode && !isPersonal) {
+        const v = await fetchTaxRow({ amountCents, inclusive: taxMode === 'inclusive', taxCode }).catch(() => null);
+        if (v?.preview) {
+          amountCents = v.preview.grossCents;
+          tax = { taxCode: v.preview.taxCode, taxAmountCents: v.preview.taxCents };
+        } else if (taxMode === 'exclusive') {
+          setSubmitError(t('expenses_ui.tax_preview_failed'));
+          return;
+        }
+      }
       const body: Record<string, unknown> = {
-        amountCents: parseAmount(amount).cents,
+        ...tax,
+        amountCents,
         vendor: vendor || undefined,
         description: description || vendor || 'Expense',
         date,
@@ -220,6 +291,7 @@ export const NewExpensePage: React.FC = () => {
         setSuccess(true);
         setAmount(''); setVendor(''); setDescription('');
         setCategoryId(''); setSuggestion(null); categoryTouched.current = false;
+        setTaxCode(null); setTaxMode('inclusive');
         setReceiptStatus({ kind: 'idle' });
         setTimeout(() => setSuccess(false), 3000);
       } else {
@@ -247,7 +319,7 @@ export const NewExpensePage: React.FC = () => {
         <div className="bg-green-500/10 text-green-500 p-4 rounded-lg mb-6">{t('expenses_ui.expense_recorded_ok')}</div>
       )}
       {submitError && (
-        <div className="bg-destructive/10 text-destructive p-4 rounded-lg mb-6 flex items-center gap-2">
+        <div role="alert" className="bg-destructive/10 text-destructive p-4 rounded-lg mb-6 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {submitError}
         </div>
@@ -322,6 +394,45 @@ export const NewExpensePage: React.FC = () => {
               className="w-full pl-9 pr-4 py-2 bg-background border border-border rounded-lg focus:ring-2 focus:ring-primary/50 focus:border-primary" placeholder="0.00" />
           </div>
         </div>
+
+        {taxView && !isPersonal && (
+          <div data-testid="new-expense-tax-row" className="space-y-2">
+            <div role="group" aria-label={t('expenses_ui.tax_code_label')} className="flex flex-wrap gap-2">
+              {taxView.codes.map((c) => (
+                <button key={c.code} type="button" data-testid={`new-expense-tax-code-${c.code}`} aria-pressed={taxCode === c.code}
+                  onClick={() => setTaxCode(c.code)}
+                  className={`px-3 py-1 rounded-full border text-sm ${taxCode === c.code ? 'bg-primary text-primary-foreground border-primary' : 'border-border'}`}>
+                  {taxCodeLabel(c.code)}
+                </button>
+              ))}
+            </div>
+            <div role="radiogroup" aria-label={t('expenses_ui.tax_mode_label')} className="flex gap-2">
+              {(['inclusive', 'exclusive'] as const).map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={taxMode === m} data-testid={`new-expense-tax-mode-${m}`}
+                  onClick={() => setTaxMode(m)}
+                  className={`flex-1 py-2 rounded-lg border text-sm ${taxMode === m ? 'bg-primary text-primary-foreground border-primary' : 'border-border'}`}>
+                  {m === 'inclusive' ? t('expenses_ui.tax_inclusive') : t('expenses_ui.tax_exclusive')}
+                </button>
+              ))}
+            </div>
+            {taxView.preview && (
+              <p data-testid="new-expense-tax-amount" className="text-xs text-muted-foreground">
+                {t('expenses_ui.tax_amount', { tax: formatMoney(taxView.preview.taxCents), total: formatMoney(taxView.preview.grossCents) })}
+              </p>
+            )}
+            {receiptStatus.kind === 'extracted' && (receiptStatus.result.tax_cents ?? 0) > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t('expenses_ui.tax_printed', { label: receiptStatus.result.tax_label ?? '', amount: formatMoney(receiptStatus.result.tax_cents ?? 0) })}
+              </p>
+            )}
+            {taxView.registrationPrompt && (
+              <p data-testid="new-expense-tax-prompt" className="text-sm">
+                {t('expenses_ui.tax_registration_prompt')}{' '}
+                <a href="/settings" className="text-primary underline">{t('expenses_ui.tax_registration_link')}</a>
+              </p>
+            )}
+          </div>
+        )}
 
         <div>
           <label htmlFor="new-expense-vendor" className="block text-sm font-medium mb-1">{t('expenses_ui.col_vendor')}</label>

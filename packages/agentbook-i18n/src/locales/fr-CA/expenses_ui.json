@@ -135,5 +135,21 @@
   "category_choose": "Choisir une catégorie",
   "category_hint_vendor": "Retenue d’après vos dépenses passées",
   "category_hint_pattern": "Apprise d’après vos dépenses passées ({pct} %)",
-  "category_hint_ai": "Suggérée par l’IA ({pct} %) — veuillez la vérifier"
+  "category_hint_ai": "Suggérée par l’IA ({pct} %) — veuillez la vérifier",
+  "tax_code_label": "Code de taxe",
+  "tax_mode_label": "Comment le montant est saisi",
+  "tax_inclusive": "Montant taxes incluses",
+  "tax_exclusive": "Taxes en sus",
+  "tax_amount": "Taxes {tax} · total {total}",
+  "tax_printed": "Sur le reçu : {label} {amount}",
+  "tax_registration_prompt": "Êtes-vous inscrit à la TPS ? Dites-le-nous pour que nous puissions réclamer vos crédits de taxe sur les intrants.",
+  "tax_registration_link": "Ouvrir le profil d’entreprise",
+  "tax_code_gst_free": "Exonéré de GST",
+  "tax_code_input_taxed": "Imposé à l’entrée",
+  "tax_code_no_gst": "Sans GST",
+  "tax_code_capital": "Achat d’immobilisation",
+  "tax_code_zero_rated": "Détaxé",
+  "tax_code_exempt": "Exonéré",
+  "tax_code_out_of_scope": "Hors champ",
+  "tax_preview_failed": "Impossible de calculer le total taxes incluses. Vérifiez votre connexion et réessayez."
 }

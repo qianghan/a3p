@@ -135,5 +135,21 @@
   "category_choose": "Choose a category",
   "category_hint_vendor": "Remembered from your past expenses",
   "category_hint_pattern": "Learned from your past expenses ({pct}%)",
-  "category_hint_ai": "Suggested by AI ({pct}%) — please check it"
+  "category_hint_ai": "Suggested by AI ({pct}%) — please check it",
+  "tax_code_label": "Tax code",
+  "tax_mode_label": "How the amount is entered",
+  "tax_inclusive": "Amount includes tax",
+  "tax_exclusive": "Tax added on top",
+  "tax_amount": "Tax {tax} · total {total}",
+  "tax_printed": "On the receipt: {label} {amount}",
+  "tax_registration_prompt": "Are you registered for GST? Tell us so we can claim your input tax.",
+  "tax_registration_link": "Open Business Profile",
+  "tax_code_gst_free": "GST-free",
+  "tax_code_input_taxed": "Input-taxed",
+  "tax_code_no_gst": "No GST",
+  "tax_code_capital": "Capital purchase",
+  "tax_code_zero_rated": "Zero-rated",
+  "tax_code_exempt": "Exempt",
+  "tax_code_out_of_scope": "Out of scope",
+  "tax_preview_failed": "Couldn’t work out the tax-inclusive total. Check your connection and try again."
 }
