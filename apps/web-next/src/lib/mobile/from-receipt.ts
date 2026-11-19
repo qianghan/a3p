@@ -25,6 +25,7 @@ import { claimKey, recordResponse } from '@/lib/agentbook-idempotency';
 import { checkOcrQuota, ocrReceiptBytes, type ReceiptOcrBytesResult } from '@/lib/agentbook-receipt-ocr';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { isIsoCalendarDate } from '@/lib/iso-calendar-date';
+import { resolveExpenseTax, isMealsAccount, type ResolvedExpenseTax } from '@/lib/expense-tax';
 import { toMobileDoc } from './doc-mapper';
 import type { FromReceiptResult, MobileDoc } from './types';
 import { MAX_AMOUNT_CENTS } from './receipt-limits';
@@ -81,6 +82,8 @@ const ocrText = (v: unknown): string | null => (typeof v === 'string' && v.trim(
 interface OcrRead {
   amountCents: number | null;
   taxCents: number;
+  /** tax_cents as printed; null when the read had none (0 counts as none: models emit 0 for "not found"). */
+  printedTaxCents: number | null;
   tipCents: number;
   vendor: string | null;
   date: string | null;
@@ -95,6 +98,7 @@ function readOcr(ocr: ReceiptOcrBytesResult | null): OcrRead | null {
   return {
     amountCents: ocrCents(ocr.amount_cents, false),
     taxCents: ocrCents(ocr.tax_cents, true) ?? 0,
+    printedTaxCents: ocrCents(ocr.tax_cents, false),
     tipCents: ocrCents(ocr.tip_cents, true) ?? 0,
     vendor: ocrText(ocr.vendor),
     date: ocr.dateFound && typeof ocr.date === 'string' && isIsoCalendarDate(ocr.date) ? ocr.date : null,
@@ -260,7 +264,7 @@ export async function createExpenseFromReceipt(input: {
     //    The transaction count is bumped with the expense create (step 5), not
     //    here, so a failed attempt that is retried counts once. As elsewhere, a
     //    vendor's first sighting creates it at 0 and later ones increment.
-    let vendor: { id: string; defaultCategoryId: string | null; normalizedName: string } | null = null;
+    let vendor: { id: string; defaultCategoryId: string | null; normalizedName: string; defaultTaxCode?: string | null } | null = null;
     let vendorExisted = false;
     if (vendorName) {
       const normalized = vendorKey(vendorName);
@@ -270,7 +274,7 @@ export async function createExpenseFromReceipt(input: {
           where: { tenantId_normalizedName: { tenantId, normalizedName: normalized } },
           update: { lastSeen: new Date() },
           create: { tenantId, name: vendorName, normalizedName: normalized },
-          select: { id: true, defaultCategoryId: true, normalizedName: true },
+          select: { id: true, defaultCategoryId: true, normalizedName: true, defaultTaxCode: true },
         });
       }
     }
@@ -296,6 +300,29 @@ export async function createExpenseFromReceipt(input: {
       }
     }
 
+    const tenantCfg = await db.abTenantConfig.findUnique({
+      where: { userId: tenantId },
+      select: { currency: true, jurisdiction: true, region: true, gstRegistered: true, qstRegistered: true },
+    });
+
+    // 4b. Tax via the table (PR 2b.5): vendor default code, else the
+    //     jurisdiction default for a registrant. Printed OCR tax wins within 2¢
+    //     of the computed tax; further off, the computed figure is kept and the
+    //     row is held for review (not auto-confirmed).
+    let tax: ResolvedExpenseTax | null = null;
+    if (!isPersonal && amountCents !== null && amountCents > 0) {
+      const catAcct = categoryId
+        ? await db.abAccount.findFirst({ where: { id: categoryId, tenantId }, select: { name: true, taxCategory: true } })
+        : null;
+      tax = resolveExpenseTax({
+        tenant: tenantCfg,
+        vendorDefaultTaxCode: vendor?.defaultTaxCode ?? null,
+        amountCents,
+        isMeal: isMealsAccount(catAcct),
+        printedTaxCents: ocr?.printedTaxCents ?? null,
+      });
+    }
+
     // 5. Decide the status and create the row.
     const humanAmount = overrides.amountCents !== undefined;
     const ocrConfident = !!ocr && ocr.confidence >= AUTO_CONFIRM_MIN_OCR_CONFIDENCE;
@@ -303,9 +330,9 @@ export async function createExpenseFromReceipt(input: {
       // `vendor`, not `vendorName`: a name that could not be linked (no letter
       // or digit) is not a known vendor.
       amountCents !== null && dateStr !== null && vendor !== null &&
-      (humanAmount || ocrConfident) && (isPersonal || categoryId !== null);
+      (humanAmount || ocrConfident) && (isPersonal || categoryId !== null) &&
+      !tax?.taxReview;
 
-    const tenantCfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { currency: true } });
     const parsedDate = dateStr ? new Date(dateStr) : new Date();
     const date = isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
@@ -317,7 +344,8 @@ export async function createExpenseFromReceipt(input: {
         data: {
           tenantId,
           amountCents: amountCents ?? 0,
-          taxAmountCents: ocr?.taxCents ?? 0,
+          taxAmountCents: tax?.taxAmountCents ?? ocr?.taxCents ?? 0,
+          ...(tax?.taxCode ? { taxCode: tax.taxCode, recoverableTaxCents: tax.recoverableTaxCents } : {}),
           tipAmountCents: ocr?.tipCents ?? 0,
           vendorId: vendor?.id,
           categoryId,
@@ -391,7 +419,13 @@ export async function createExpenseFromReceipt(input: {
       ok: true,
       status: 201,
       expenseId: created.id,
-      result: { doc: loaded.doc, duplicate: false, ocr: { amountCents: ocrAmount, vendor: ocrVendor, date: ocrDate } },
+      result: {
+        doc: loaded.doc,
+        duplicate: false,
+        ocr: { amountCents: ocrAmount, vendor: ocrVendor, date: ocrDate },
+        ...(tax?.registrationPrompt ? { taxRegistrationPrompt: true as const } : {}),
+        ...(tax?.taxReview ? { taxReview: true as const } : {}),
+      },
     };
   } catch (err) {
     await releaseClaim(claim);

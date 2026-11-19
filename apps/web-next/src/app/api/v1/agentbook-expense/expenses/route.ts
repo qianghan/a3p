@@ -22,6 +22,9 @@ import { autoCategorizeForTenant, getPendingSuggestions } from '@/lib/agentbook-
 import { rememberVendorCategory } from '@/lib/agentbook-suggest-category';
 import { parseExpenseListQuery, encodeCursor, countDocFilters } from '@/lib/agentbook-expense-list-query';
 import { deriveCategorySource, suggestionFromPending } from '@/lib/mobile/doc-mapper';
+import { appendBalancedEntry, assertPeriodOpen, LedgerPeriodClosedError } from '@/lib/ledger-writer';
+import { resolveExpenseTax, isMealsAccount, type ResolvedExpenseTax } from '@/lib/expense-tax';
+import { TaxCodeError } from '@/lib/tax-codes';
 import type { Prisma } from '@naap/database';
 
 /**
@@ -84,6 +87,8 @@ interface CreateExpenseBody {
   status?: string;
   /** Set by an entry form when a HUMAN chose/accepted categoryId; only then do we learn from it. */
   categorySource?: string;
+  /** PR 2b: tax code (AU GST/CAP/FRE/INP/NTR, CA GST/HST/GST_PST/GST_QST/…, US SALES_TAX/NONE); null = untyped. */
+  taxCode?: string | null;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -107,13 +112,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         const {
           amountCents, vendor, categoryId, date, description, receiptUrl, confidence, isPersonal,
           taxAmountCents, tipAmountCents, paymentMethod, currency, notes, tags, isBillable, clientId, source, status, categorySource,
+          taxCode,
         } = body;
 
         if (!amountCents || amountCents <= 0) {
           return { status: 400, body: { success: false, error: 'amountCents must be a positive integer' } };
         }
 
-        let vendorRecord: { id: string; defaultCategoryId: string | null; normalizedName: string } | null = null;
+        if (taxCode !== undefined && taxCode !== null && typeof taxCode !== 'string') {
+          return { status: 400, body: { success: false, code: 'invalid_tax_code', error: 'taxCode must be a string' } };
+        }
+
+        let vendorRecord: { id: string; defaultCategoryId: string | null; normalizedName: string; defaultTaxCode?: string | null } | null = null;
         if (vendor) {
           const normalized = normalizeVendorName(vendor);
           if (normalized) {
@@ -126,7 +136,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
                 normalizedName: normalized,
                 defaultCategoryId: categoryId || null,
               },
-              select: { id: true, defaultCategoryId: true, normalizedName: true },
+              select: { id: true, defaultCategoryId: true, normalizedName: true, defaultTaxCode: true },
             });
           }
         }
@@ -220,35 +230,42 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           debitAccountId = (await ensureUncategorizedAccount(tenantId)).id;
         }
 
-        const expense = await db.$transaction(async (tx) => {
-          let journalEntryId: string | null = null;
-          if (debitAccountId && !isPersonal) {
-            const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
-            if (cashAccount) {
-              const je = await tx.abJournalEntry.create({
-                data: {
-                  tenantId,
-                  date: new Date(date || Date.now()),
-                  memo: `Expense: ${description || vendor || 'Expense'}`,
-                  sourceType: 'expense',
-                  verified: true,
-                  lines: {
-                    create: [
-                      { tenantId, accountId: debitAccountId, debitCents: amountCents, creditCents: 0, description: description || vendor || 'Expense' }, // G-009
-                      { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` }, // G-009
-                    ],
-                  },
-                },
-              });
-              journalEntryId = je.id;
+        // PR 2b.5 — tax via the table (lib/expense-tax). Business expenses only:
+        // a personal row is never booked, so it carries no recoverable split.
+        let tax: ResolvedExpenseTax | null = null;
+        if (!isPersonal) {
+          const cfg = await db.abTenantConfig.findUnique({
+            where: { userId: tenantId },
+            select: { jurisdiction: true, region: true, gstRegistered: true, qstRegistered: true },
+          });
+          const catAcct = resolvedCategoryId
+            ? await db.abAccount.findFirst({ where: { id: resolvedCategoryId, tenantId }, select: { name: true, taxCategory: true } })
+            : null;
+          try {
+            tax = resolveExpenseTax({
+              tenant: cfg,
+              taxCode,
+              vendorDefaultTaxCode: vendorRecord?.defaultTaxCode ?? null,
+              amountCents,
+              isMeal: isMealsAccount(catAcct),
+              printedTaxCents: typeof taxAmountCents === 'number' && taxAmountCents > 0 ? taxAmountCents : null,
+            });
+          } catch (err) {
+            if (err instanceof TaxCodeError) {
+              return { status: 400, body: { success: false, code: 'invalid_tax_code', error: 'taxCode is not a valid tax code for your jurisdiction and region' } };
             }
+            throw err;
           }
+        }
+        const recoverable = tax?.recoverableTaxCents ?? 0;
+        const postingDate = new Date(date || Date.now());
 
-          const exp = await tx.abExpense.create({
+        const expense = await db.$transaction(async (tx) => {
+          const created = await tx.abExpense.create({
             data: {
               tenantId,
               amountCents,
-              taxAmountCents: taxAmountCents || 0,
+              taxAmountCents: tax?.taxAmountCents ?? (taxAmountCents || 0),
               tipAmountCents: tipAmountCents || 0,
               vendorId: vendorRecord?.id,
               // resolvedCategoryId, NOT debitAccountId — a suspense posting is
@@ -257,7 +274,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               // off categoryId === null; stamping 6999 here would hide the
               // expense from every prompt to actually classify it.
               categoryId: resolvedCategoryId,
-              date: new Date(date || Date.now()),
+              date: postingDate,
               description: description || vendor || 'Expense',
               notes: notes || null,
               receiptUrl,
@@ -268,12 +285,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               isPersonal: isPersonal || false,
               isBillable: isBillable || false,
               clientId: clientId || null,
-              journalEntryId,
+              journalEntryId: null,
+              ...(tax?.taxCode ? { taxCode: tax.taxCode, recoverableTaxCents: recoverable } : {}),
               ...(source ? { source } : {}),
               ...(status ? { status } : {}),
             },
             include: { vendor: true },
           });
+
+          // One writer (lib/ledger-writer): balanced, closed-period gated, keyed
+          // by the expense id. A registrant's typed purchase posts
+          //   DR category (gross − recoverable) | DR 2100 (recoverable) | CR cash (gross);
+          // everyone else the unchanged DR category | CR cash at gross.
+          let exp = created;
+          if (debitAccountId && !isPersonal) {
+            const cashAccount = await tx.abAccount.findFirst({ where: { tenantId, code: '1000' } });
+            const taxControl = recoverable > 0
+              ? await tx.abAccount.findFirst({ where: { tenantId, code: '2100' } })
+              : null;
+            const split = recoverable > 0 && !!taxControl;
+            if (cashAccount) {
+              await assertPeriodOpen(tx, tenantId, postingDate);
+              const desc = description || vendor || 'Expense';
+              const journalEntryId = await appendBalancedEntry(
+                tx,
+                tenantId,
+                { date: postingDate, memo: `Expense: ${desc}`, sourceType: 'expense', sourceId: created.id },
+                [
+                  { accountId: debitAccountId, debitCents: split ? amountCents - recoverable : amountCents, creditCents: 0, description: desc }, // G-009
+                  ...(split ? [{ accountId: (taxControl as { id: string }).id, debitCents: recoverable, creditCents: 0, description: 'Recoverable tax' }] : []),
+                  { accountId: cashAccount.id, debitCents: 0, creditCents: amountCents, description: `Payment: ${vendor || 'Expense'}` }, // G-009
+                ],
+              );
+              exp = await tx.abExpense.update({
+                where: { id: created.id },
+                // No 2100 account to debit: book gross and record no recoverable tax, so the row matches the ledger.
+                data: { journalEntryId, ...(recoverable > 0 && !split ? { recoverableTaxCents: 0 } : {}) },
+                include: { vendor: true },
+              });
+            }
+          }
 
           await tx.abEvent.create({
             data: {
@@ -332,6 +383,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             success: true,
             data: expense,
             meta: {
+              taxRegistrationPrompt: tax?.registrationPrompt ?? false,
+              taxReview: tax?.taxReview ?? false,
               vendor: vendorRecord,
               categoryFromPattern: !categoryId && !!resolvedCategoryId,
               confidence: resolvedConfidence,
@@ -339,6 +392,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           },
         };
       } catch (err) {
+        if (err instanceof LedgerPeriodClosedError) {
+          return {
+            status: 422,
+            body: {
+              success: false,
+              error: 'Period gate violated',
+              details: { constraint: 'period_gate', year: err.year, month: err.month, status: 'closed' },
+            },
+          };
+        }
         console.error('[agentbook-expense/expenses POST] failed:', err);
         return {
           status: 500,

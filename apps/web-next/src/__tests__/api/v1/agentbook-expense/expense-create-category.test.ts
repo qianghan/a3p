@@ -13,6 +13,7 @@ const h = vi.hoisted(() => ({
   accountFindFirst: vi.fn(),
   expenseCreate: vi.fn(),
   journalCreate: vi.fn(),
+  lineCreate: vi.fn(async ({ data }: { data: Record<string, unknown> }) => data),
 }));
 
 vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
@@ -38,7 +39,12 @@ vi.mock('@naap/database', () => {
   const tx = {
     abAccount: { findFirst: (...a: unknown[]) => h.accountFindFirst(...a) },
     abJournalEntry: { create: (...a: unknown[]) => h.journalCreate(...a) },
-    abExpense: { create: (...a: unknown[]) => h.expenseCreate(...a) },
+    abJournalLine: { create: (...a: unknown[]) => h.lineCreate(...(a as [{ data: Record<string, unknown> }])) },
+    abFiscalPeriod: { findUnique: vi.fn(async () => null) },
+    abExpense: {
+      create: (...a: unknown[]) => h.expenseCreate(...a),
+      update: async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ id: where.id, ...data }),
+    },
     abEvent: { create: vi.fn(async () => ({})) },
   };
   return {
@@ -47,6 +53,7 @@ vi.mock('@naap/database', () => {
       abVendor: { upsert: vi.fn(async () => ({ id: 'v1', defaultCategoryId: null, normalizedName: 'cafe' })) },
       abPattern: { findUnique: vi.fn(async () => null), update: vi.fn(), delete: vi.fn() },
       abAccount: { findFirst: (...a: unknown[]) => h.accountFindFirst(...a) },
+      abTenantConfig: { findUnique: vi.fn(async () => null) },
       $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
     },
   };
@@ -74,7 +81,7 @@ beforeEach(() => {
   });
 });
 
-const lines = () => h.journalCreate.mock.calls[0][0].data.lines.create as Array<{ accountId: string; debitCents: number; creditCents: number }>;
+const lines = () => h.lineCreate.mock.calls.map((c) => c[0].data) as Array<{ accountId: string; debitCents: number; creditCents: number }>;
 
 describe('POST /expenses with a category — one request, booked on the real category', () => {
   it('books DR chosen category / CR cash, never suspense, and stamps the category on the row', async () => {

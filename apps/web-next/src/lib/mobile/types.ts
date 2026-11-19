@@ -88,4 +88,6 @@ export interface FromReceiptResult {
   duplicate: boolean;
   ocr: { amountCents: number | null; vendor: string | null; date: string | null };
   deleted?: true;                      // replay of a key whose expense was since deleted (nothing is re-created)
+  taxRegistrationPrompt?: true;        // AU/CA tenant with unknown GST registration: posted gross, ask them (PR 2b)
+  taxReview?: true;                    // printed tax was > 2¢ off the computed tax: held in review (PR 2b)
 }
