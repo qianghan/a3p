@@ -38,7 +38,7 @@ function linesOf(entryId: string): Record<string, [number, number]> {
   return out;
 }
 const apBalance = () => -(f.netByAccount()['acct-ap'] ?? 0) || 0; // credit balance
-const totals = () => f.state.lines.reduce((s, l) => [s[0] + l.debitCents, s[1] + l.creditCents], [0, 0]);
+const totals = (): [number, number] => f.state.lines.reduce<[number, number]>((s, l) => [s[0] + l.debitCents, s[1] + l.creditCents], [0, 0]);
 
 const billInput = (over: Record<string, unknown> = {}) => ({
   vendorName: 'Officeworks',

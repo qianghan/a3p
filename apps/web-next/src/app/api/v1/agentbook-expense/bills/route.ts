@@ -15,6 +15,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { postBill, PurchaseError } from '@/lib/purchases';
+import { isPurchasesAtEntryEnabled } from '@/lib/purchases-flag';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,6 +75,11 @@ interface CreateBillBody {
   amountCents?: number;
   categoryCode?: string;
   dueDate?: string;
+  billDate?: string;
+  billNumber?: string;
+  currency?: string;
+  taxCode?: string | null;
+  idempotencyKey?: string;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -91,6 +98,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const due = new Date(body.dueDate);
     if (isNaN(due.getTime())) {
       return NextResponse.json({ success: false, error: 'invalid dueDate' }, { status: 400 });
+    }
+
+    // PR 3bc: accrual tenants post AP at entry — behind `purchases_at_entry` (off).
+    if (await isPurchasesAtEntryEnabled()) {
+      const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+      if (cfg && cfg.accountingBasis !== 'cash') {
+        const billDate = body.billDate ? new Date(body.billDate) : new Date();
+        if (isNaN(billDate.getTime())) {
+          return NextResponse.json({ success: false, error: 'invalid billDate' }, { status: 400 });
+        }
+        const category = body.categoryCode
+          ? await db.abAccount.findFirst({ where: { tenantId, code: body.categoryCode, accountType: 'expense' } })
+          : null;
+        if (body.categoryCode && !category) {
+          return NextResponse.json({ success: false, code: 'invalid_category', error: 'unknown categoryCode' }, { status: 422 });
+        }
+        try {
+          const { bill, replayed } = await postBill(db, tenantId, {
+            vendorName: body.vendorName, description: body.description ?? null, billNumber: body.billNumber ?? null,
+            billDate, dueDate: due, currency: body.currency ?? null, postingMode: 'at_entry',
+            idempotencyKey: body.idempotencyKey ?? request.headers.get('idempotency-key'),
+            lines: [{ description: body.description || body.vendorName, amountCents: body.amountCents, categoryId: category?.id ?? null, taxCode: body.taxCode }],
+          });
+          return NextResponse.json({ success: true, data: bill }, { status: replayed ? 200 : 201 });
+        } catch (err) {
+          if (err instanceof PurchaseError) {
+            return NextResponse.json({ success: false, code: err.code, error: publicErrorMessage(err) }, { status: err.status });
+          }
+          throw err;
+        }
+      }
     }
 
     const bill = await db.abBill.create({

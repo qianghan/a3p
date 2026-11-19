@@ -2,10 +2,13 @@
  * Bill detail operations — update (PUT), cancel (DELETE), pay (POST .../pay
  * is handled here via ?action=pay for a flat route surface).
  *
- * Pay posts the bill to the ledger at payment time: Dr <expense account>
- * / Cr Cash (1000), the same shape as a normal recorded expense. This makes
- * the expense land on both the cash and accrual P&L at the payment date and
- * never double-counts (bills carry no ledger impact before payment).
+ * Pay and cancel go through lib/purchases (PR 3bc). For legacy
+ * `postingMode='at_payment'` bills pay still posts Dr <expense> / Cr Cash
+ * (1000) at payment, now via the ledger writer: keyed 'bill' / payment.id,
+ * period-gated, a missing category books 6999, and a missing account FAILS
+ * the request instead of marking the bill paid with no entry. `at_entry`
+ * bills pay Dr 2000 / Cr 1000. DELETE of a paid/partial bill is refused
+ * until its payments are voided.
  */
 
 import 'server-only';
@@ -13,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payBill, voidBill, PurchaseError } from '@/lib/purchases';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +41,10 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
     if (existing.status === 'paid') {
       return NextResponse.json({ success: false, error: 'cannot edit a paid bill' }, { status: 409 });
     }
+    if (existing.postingMode === 'at_entry') {
+      // Its entry is already in the ledger: a raw field edit would drift from it.
+      return NextResponse.json({ success: false, code: 'bill_amend_required', error: 'this bill is posted; amend it instead' }, { status: 409 });
+    }
 
     const update: Record<string, unknown> = {};
     if (body.vendorName !== undefined) update.vendorName = body.vendorName;
@@ -57,17 +65,24 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
   }
 }
 
+function purchaseErrorResponse(err: unknown): NextResponse | null {
+  if (err instanceof PurchaseError) {
+    return NextResponse.json({ success: false, code: err.code, error: publicErrorMessage(err) }, { status: err.status });
+  }
+  return null;
+}
+
 export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextResponse> {
   try {
     const __resolved = await safeResolveAgentbookTenant(request);
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
     const { id } = await ctx.params;
-    const existing = await db.abBill.findFirst({ where: { id, tenantId } });
-    if (!existing) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
-    const bill = await db.abBill.update({ where: { id }, data: { status: 'cancelled' } });
+    const { bill } = await voidBill(db, tenantId, id);
     return NextResponse.json({ success: true, data: bill });
   } catch (err) {
+    const known = purchaseErrorResponse(err);
+    if (known) return known;
     console.error('[agentbook-expense/bills DELETE] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
@@ -84,57 +99,23 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
     if (action !== 'pay') {
       return NextResponse.json({ success: false, error: 'unsupported action' }, { status: 400 });
     }
-
-    const bill = await db.abBill.findFirst({ where: { id, tenantId } });
-    if (!bill) return NextResponse.json({ success: false, error: 'bill not found' }, { status: 404 });
-    if (bill.status === 'paid') {
-      return NextResponse.json({ success: false, error: 'bill already paid' }, { status: 409 });
-    }
-    if (bill.status === 'cancelled') {
-      return NextResponse.json({ success: false, error: 'cannot pay a cancelled bill' }, { status: 409 });
-    }
-
-    const body = (await request.json().catch(() => ({}))) as { paidDate?: string };
+    const body = (await request.json().catch(() => ({}))) as {
+      paidDate?: string; amountCents?: number; method?: string; idempotencyKey?: string;
+    };
     const paidDate = body.paidDate ? new Date(body.paidDate) : new Date();
-
-    // Resolve the expense account to debit (bill's category, else first active expense account)
-    // and the cash account to credit.
-    const [expenseAccount, cashAccount] = await Promise.all([
-      bill.categoryCode
-        ? db.abAccount.findFirst({ where: { tenantId, code: bill.categoryCode } })
-        : db.abAccount.findFirst({ where: { tenantId, accountType: 'expense', isActive: true }, orderBy: { code: 'asc' } }),
-      db.abAccount.findFirst({ where: { tenantId, code: '1000' } }),
-    ]);
-
-    const updated = await db.$transaction(async (tx) => {
-      let journalEntryId: string | null = null;
-      if (expenseAccount && cashAccount) {
-        const je = await tx.abJournalEntry.create({
-          data: {
-            tenantId,
-            date: paidDate,
-            memo: `Bill payment: ${bill.vendorName}`,
-            sourceType: 'bill',
-            verified: true,
-            lines: {
-              create: [
-                { tenantId, accountId: expenseAccount.id, debitCents: bill.amountCents, creditCents: 0, description: bill.description || bill.vendorName },
-                { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: bill.amountCents, description: `Payment: ${bill.vendorName}` },
-              ],
-            },
-          },
-        });
-        journalEntryId = je.id;
-      }
-
-      return tx.abBill.update({
-        where: { id },
-        data: { status: 'paid', paidDate, journalEntryId },
-      });
+    if (isNaN(paidDate.getTime())) {
+      return NextResponse.json({ success: false, error: 'invalid paidDate' }, { status: 400 });
+    }
+    const { bill } = await payBill(db, tenantId, id, {
+      date: paidDate,
+      amountCents: body.amountCents,
+      method: body.method,
+      idempotencyKey: body.idempotencyKey ?? request.headers.get('idempotency-key'),
     });
-
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({ success: true, data: bill });
   } catch (err) {
+    const known = purchaseErrorResponse(err);
+    if (known) return known;
     console.error('[agentbook-expense/bills pay] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }

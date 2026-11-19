@@ -27,6 +27,7 @@
  * Status is authoritative for "paid"; never derive it from paidCents there.
  */
 import 'server-only';
+import { PublicError } from '@/lib/api-error';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   appendBalancedEntry,
@@ -49,10 +50,11 @@ type Row = Record<string, any>;
 /** The Prisma client (or a transaction-capable test double). */
 export type PurchasesDb = any;
 
-export class PurchaseError extends Error {
-  constructor(public readonly status: number, public readonly code: string, message?: string) {
-    super(message ?? code);
-    this.name = 'PurchaseError';
+/** A caller-facing refusal (validation, 404, 409, 422) — safe to echo. */
+export class PurchaseError extends PublicError {
+  declare readonly status: number;
+  constructor(status: number, public readonly code: string, message?: string) {
+    super(message ?? code, status);
   }
 }
 
