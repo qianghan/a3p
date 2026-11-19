@@ -19,7 +19,11 @@ vi.mock('server-only', () => ({}));
 const h = vi.hoisted(() => ({ fake: null as any, events: [] as unknown[] }));
 
 vi.mock('@naap/database', () => ({
-  prisma: new Proxy({}, { get: (_t, p) => (p === 'abEvent' ? { create: async (a: unknown) => h.events.push(a) } : h.fake.db[p as string]) }),
+  prisma: new Proxy({}, { get: (_t, p) =>
+      p === 'abEvent' ? { create: async (a: unknown) => h.events.push(a) }
+      // No tenant config: untyped, so confirm books the 2-line gross (PR 2b.8 tax resolution is a no-op).
+      : p === 'abTenantConfig' ? { findUnique: async () => null }
+      : h.fake.db[p as string] }),
 }));
 vi.mock('@/lib/agentbook-tenant', () => ({
   safeResolveAgentbookTenant: vi.fn(async () => ({ tenantId: 't1' })),

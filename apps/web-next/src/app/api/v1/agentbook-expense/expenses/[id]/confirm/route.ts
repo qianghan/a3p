@@ -10,6 +10,9 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { ensureChartOfAccounts } from '@/lib/agentbook-chart-of-accounts';
 import { publicErrorMessage } from '@/lib/api-error';
+import { bookExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
+import { resolveExpenseTax, isMealsAccount } from '@/lib/expense-tax';
+import { TaxCodeError } from '@/lib/tax-codes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,43 +47,63 @@ export async function POST(
       return NextResponse.json({ success: true, data: expense, message: 'Already confirmed' });
     }
 
-    let journalEntryId = expense.journalEntryId;
     const finalCategoryId = body.categoryId || expense.categoryId;
     const finalAmount = body.amountCents || expense.amountCents;
-    const finalDescription = body.description || expense.description;
 
-    if (!journalEntryId && finalCategoryId && !expense.isPersonal) {
-      // Seed on demand — the chart is otherwise only created by onboarding, so a
-      // tenant who skipped it would silently never book this expense.
-      await ensureChartOfAccounts(tenantId);
-      const cashAccount = await db.abAccount.findFirst({ where: { tenantId, code: '1000' } });
-      if (cashAccount) {
-        const je = await db.abJournalEntry.create({
-          data: {
-            tenantId,
-            date: expense.date,
-            memo: `Expense: ${finalDescription || 'Confirmed expense'}`,
-            sourceType: 'expense',
-            sourceId: expense.id,
-            verified: true,
-            lines: {
-              create: [
-                { tenantId, accountId: finalCategoryId, debitCents: finalAmount, creditCents: 0, description: finalDescription || 'Expense' }, // G-009
-                { tenantId, accountId: cashAccount.id, debitCents: 0, creditCents: finalAmount, description: 'Payment' }, // G-009
-              ],
-            },
-          },
-        });
-        journalEntryId = je.id;
-      }
-    }
-
-    const updateData: Record<string, unknown> = { status: 'confirmed', journalEntryId };
+    const updateData: Record<string, unknown> = { status: 'confirmed' };
     if (body.amountCents) updateData.amountCents = body.amountCents;
     if (body.categoryId) updateData.categoryId = body.categoryId;
     if (body.description) updateData.description = body.description;
 
-    const updated = await db.abExpense.update({ where: { id }, data: updateData });
+    // PR 2b.8 — imported drafts (CSV / CC statement / bank) arrive untyped and
+    // unbooked; confirm is where they reach the ledger, so it resolves tax the
+    // way every other entry path does: the row's code, else the vendor's
+    // default, else the registrant default.
+    if (!expense.isPersonal) {
+      const [cfg, catAcct, vendor] = await Promise.all([
+        db.abTenantConfig.findUnique({
+          where: { userId: tenantId },
+          select: { jurisdiction: true, region: true, gstRegistered: true, qstRegistered: true },
+        }),
+        finalCategoryId
+          ? db.abAccount.findFirst({ where: { id: finalCategoryId, tenantId }, select: { name: true, taxCategory: true } })
+          : null,
+        expense.vendorId
+          ? db.abVendor.findFirst({ where: { id: expense.vendorId, tenantId }, select: { defaultTaxCode: true } })
+          : null,
+      ]);
+      const stored = (expense as { taxCode?: string | null }).taxCode ?? undefined;
+      try {
+        const tax = resolveExpenseTax({
+          tenant: cfg,
+          taxCode: stored,
+          vendorDefaultTaxCode: (vendor as { defaultTaxCode?: string | null } | null)?.defaultTaxCode ?? null,
+          amountCents: finalAmount,
+          isMeal: isMealsAccount(catAcct),
+          printedTaxCents: !stored && expense.taxAmountCents > 0 && !body.amountCents ? expense.taxAmountCents : null,
+        });
+        if (tax.taxCode) {
+          updateData.taxCode = tax.taxCode;
+          updateData.taxAmountCents = tax.taxAmountCents;
+          updateData.recoverableTaxCents = tax.recoverableTaxCents;
+        }
+      } catch (err) {
+        if (!(err instanceof TaxCodeError)) throw err;
+        // A stale stored code that no longer applies: book gross, untyped.
+      }
+    }
+
+    // Seed on demand — the chart is otherwise only created by onboarding, so a
+    // tenant who skipped it would silently never book this expense.
+    const book = !expense.journalEntryId && !!finalCategoryId && !expense.isPersonal;
+    if (book) await ensureChartOfAccounts(tenantId);
+
+    const updated = await db.$transaction(async (tx) => {
+      await tx.abExpense.update({ where: { id }, data: updateData });
+      // Same tax-aware lines as the create route: DR category (gross − recoverable) | DR 2100 | CR cash.
+      if (book) await bookExpenseJournalEntry(tenantId, id, tx);
+      return tx.abExpense.findFirst({ where: { id, tenantId } });
+    });
 
     await db.abEvent.create({
       data: {
