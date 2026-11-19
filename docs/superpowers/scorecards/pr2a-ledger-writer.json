@@ -1,0 +1,43 @@
+{
+  "id": "pr2a-ledger-writer",
+  "title": "PR 2a — ledger writer extraction + tax-aware repost",
+  "goals": [
+    {
+      "id": "G1-writer",
+      "covers": ["R-LED-1"],
+      "text": "lib/ledger-writer exports appendBalancedEntry (refuses unbalanced entries; P2002 with an identical payload returns the existing entry, a different payload throws LedgerKeyConflict code P2002) and assertPeriodOpen (closed-period gate, month derived in UTC); the expense ledger posts through it with no behaviour change for untyped 2-line, 3-line-with-tax-liability and split entries.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/ledger-writer.test.ts",
+        "apps/web-next/src/lib/__tests__/agentbook-expense-ledger-shapes.test.ts"
+      ]
+    },
+    {
+      "id": "G2-typed-repost",
+      "covers": ["R-TAX-3"],
+      "text": "A tax-typed expense booked DR category(net+nonrecoverable) | DR 2100(recoverable) | CR 1000(gross) can have its amount edited, category changed or cleared, be deleted, and be reclassified out of 6999 suspense; each leaves every entry balanced and the P&L at the exact net figure.",
+      "tests": ["apps/web-next/src/lib/__tests__/agentbook-expense-ledger-shapes.test.ts"]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/lib/__tests__/agentbook-expense-ledger.test.ts",
+      "apps/web-next/src/lib/__tests__/agentbook-expense-repost.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/ledger-wiring.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/expense-edit-reposts-ledger.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/expense-edit-ledger-category-personal.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/categorize-reposts-ledger.test.ts"
+    ]
+  },
+  "ux": {
+    "vitest": [],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr2a-ledger-writer-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr2a-ledger-writer-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": ["agentbook/skills/workflows.md"],
+    "rollback": "Revert the PR. No schema change and nothing writes a 3-line typed entry yet, so the ledger holds no rows that depend on the new code; the expense ledger returns to its module-private writer.",
+    "prodPlaywright": ["tests/e2e/mobile-app/ledger-writer.spec.ts"],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}

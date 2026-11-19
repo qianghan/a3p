@@ -33,6 +33,7 @@ export function createFakeLedgerDb() {
       { id: 'acct-meals', tenantId: 't1', code: '5200', accountType: 'expense', isActive: true },
       { id: 'acct-travel', tenantId: 't1', code: '5300', accountType: 'expense', isActive: true },
       { id: 'acct-tax', tenantId: 't1', code: '2200', accountType: 'liability', isActive: true },
+      { id: 'acct-gst', tenantId: 't1', code: '2100', accountType: 'liability', isActive: true },
       { id: 'acct-old', tenantId: 't1', code: '5400', accountType: 'expense', isActive: false },
       { id: 'acct-revenue', tenantId: 't1', code: '4000', accountType: 'revenue', isActive: true },
       { id: 'acct-suspense', tenantId: 't1', code: '6999', accountType: 'expense', isActive: true },
@@ -181,6 +182,34 @@ export function createFakeLedgerDb() {
   }
 
   /**
+   * Seed an expense booked with an arbitrary line shape (2-line, 3-line with a
+   * tax liability, split, or the registrant shape DR category | DR 2100 | CR cash).
+   * `expense` fields override the defaults (e.g. taxCode, recoverableTaxCents).
+   */
+  function seedEntryExpense(opts: {
+    id?: string; tenantId?: string; date: Date; amountCents: number;
+    lines: Array<{ accountId: string; debitCents: number; creditCents: number; description?: string }>;
+    expense?: Row;
+  }) {
+    const id = opts.id ?? 'exp-1';
+    const tenantId = opts.tenantId ?? 't1';
+    const entry = {
+      id: nextId('je'), tenantId, date: opts.date, memo: 'Expense: Coffee',
+      sourceType: 'expense', sourceId: id, verified: true, createdAt: new Date(),
+    };
+    state.entries.push(entry);
+    for (const l of opts.lines) {
+      state.lines.push({ id: nextId('jl'), tenantId, entryId: entry.id, ...l, description: l.description ?? 'Coffee' });
+    }
+    state.expenses.push({
+      id, tenantId, amountCents: opts.amountCents, date: opts.date, description: 'Coffee',
+      status: 'confirmed', categoryId: 'acct-meals', isPersonal: false, journalEntryId: entry.id,
+      deletedAt: null, vendorId: null, ...(opts.expense ?? {}),
+    });
+    return { entryId: entry.id };
+  }
+
+  /**
    * What POST /agentbook-core/restore/expense/:id does today: clear deletedAt
    * and nothing else — it does NOT re-book, so journalEntryId still points at
    * the entry DELETE reversed.
@@ -210,5 +239,5 @@ export function createFakeLedgerDb() {
     return out;
   }
 
-  return { db: api, state, seedBookedExpense, restoreExpense, netByAccount, netByAccountInRange };
+  return { db: api, state, seedBookedExpense, seedEntryExpense, restoreExpense, netByAccount, netByAccountInRange };
 }

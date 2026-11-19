@@ -22,6 +22,15 @@ import {
   CASH_CODE,
   UNCATEGORIZED_CODE,
 } from '@/lib/agentbook-chart-of-accounts';
+import {
+  appendBalancedEntry as writerAppendBalancedEntry,
+  assertPeriodOpen,
+  LedgerPeriodClosedError,
+  LedgerUnbalancedError,
+} from '@/lib/ledger-writer';
+
+/** GST/HST/VAT/sales-tax control account: the recoverable-tax debit of a typed purchase. */
+const TAX_CONTROL_CODE = '2100';
 
 /**
  * Move an expense's debit off the suspense account onto its real category.
@@ -49,7 +58,14 @@ async function reclassifyFromSuspense(
   if (!suspense) return; // tenant never posted to suspense
 
   const lines = (await db.abJournalLine.findMany({ where: { entryId: journalEntryId } })) || [];
-  const debits = lines.filter((l) => l.debitCents > 0);
+  let debits = lines.filter((l) => l.debitCents > 0);
+  if (debits.length > 1) {
+    // A registrant purchase also debits the 2100 tax control account
+    // (DR category | DR 2100 | CR cash). That line is not a category: only the
+    // OTHER debit can be the suspense posting.
+    const taxControl = await db.abAccount.findFirst({ where: { tenantId, code: TAX_CONTROL_CODE } });
+    if (taxControl) debits = debits.filter((l) => l.accountId !== taxControl.id);
+  }
   if (debits.length !== 1) return; // split or unexpected shape — don't guess
   const debit = debits[0];
   if (debit.accountId !== suspense.id) return; // already on a real category
@@ -197,13 +213,8 @@ export async function reverseExpenseJournalEntry(
   }
 }
 
-/** Thrown when an edit would rewrite a month that has been closed. */
-export class ExpenseLedgerPeriodClosedError extends Error {
-  constructor(public readonly year: number, public readonly month: number) {
-    super(`Fiscal period ${year}-${String(month).padStart(2, '0')} is closed`);
-    this.name = 'ExpenseLedgerPeriodClosedError';
-  }
-}
+/** Thrown when an edit would rewrite a month that has been closed (the ledger writer's gate). */
+export { LedgerPeriodClosedError as ExpenseLedgerPeriodClosedError };
 
 /** Thrown when the booked entry's shape can't be re-priced or re-accounted without guessing. */
 export class ExpenseLedgerShapeError extends Error {
@@ -252,17 +263,6 @@ const sameUtcDay = (a: Date, b: Date) =>
 const sumDebits = (lines: LedgerLine[]) => lines.reduce((s, l) => s + l.debitCents, 0);
 const sumCredits = (lines: LedgerLine[]) => lines.reduce((s, l) => s + l.creditCents, 0);
 
-async function assertPeriodOpen(client: LedgerClient, tenantId: string, date: Date): Promise<void> {
-  // Same year/month derivation as the manual journal-entry period gate
-  // (agentbook-core/journal-entries), so both gates agree on which month a date is in.
-  const year = date.getFullYear();
-  const month = date.getMonth() + 1;
-  const period = await client.abFiscalPeriod.findUnique({
-    where: { tenantId_year_month: { tenantId, year, month } },
-  });
-  if (period && period.status === 'closed') throw new ExpenseLedgerPeriodClosedError(year, month);
-}
-
 /**
  * The expense's current entry and its lines. Lines are read by entryId rather
  * than via `include` so the same code runs against every Prisma double the
@@ -276,9 +276,9 @@ async function loadEntry(client: LedgerClient, tenantId: string, entryId: string
 }
 
 /**
- * Append one entry and its lines. Refuses anything that does not balance, so a
- * bug upstream can never put a lopsided entry on the books. Must be called with
- * the transaction client: the header and lines commit (or roll back) together.
+ * Append through the shared ledger writer (balanced, idempotent on the G-021
+ * key). An unbalanced payload surfaces as ExpenseLedgerShapeError, the error
+ * the expense routes already map to 422.
  */
 async function appendBalancedEntry(
   client: LedgerClient,
@@ -286,15 +286,12 @@ async function appendBalancedEntry(
   header: { date: Date; memo: string; sourceType: string; sourceId: string | null },
   lines: LedgerLine[],
 ): Promise<string> {
-  const debits = sumDebits(lines);
-  if (lines.length < 2 || debits <= 0 || debits !== sumCredits(lines)) {
-    throw new ExpenseLedgerShapeError();
+  try {
+    return await writerAppendBalancedEntry(client, tenantId, header, lines);
+  } catch (err) {
+    if (err instanceof LedgerUnbalancedError) throw new ExpenseLedgerShapeError();
+    throw err;
   }
-  const entry = await client.abJournalEntry.create({ data: { tenantId, ...header, verified: true } });
-  for (const l of lines) {
-    await client.abJournalLine.create({ data: { tenantId, entryId: entry.id, ...l } }); // G-009
-  }
-  return entry.id;
 }
 
 /**
@@ -443,6 +440,13 @@ export async function repostExpenseJournalEntry(
   const { entry: original, lines } = loaded;
   if (sumDebits(lines) !== sumCredits(lines)) throw new ExpenseLedgerShapeError(); // corrupt original
 
+  // A TYPED expense (taxCode set) is re-priced from its own tax fields; an
+  // untyped (legacy) row keeps the original path below, unchanged.
+  if (isTypedExpense(expense)) {
+    const typed = await repostTypedExpense(tenantId, expense, original, lines, tx, opts);
+    if (typed) return typed; // null: not re-shapeable — the legacy rules below decide
+  }
+
   const debits = lines.filter((l) => l.debitCents > 0);
   const credits = lines.filter((l) => l.creditCents > 0);
   // Only the plain DR one-account / CR one-account entry can be re-priced or
@@ -485,6 +489,104 @@ export async function repostExpenseJournalEntry(
   }));
 
   const desc = expense.description || 'Expense';
+  await appendBalancedEntry(
+    tx,
+    tenantId,
+    { date: original.date, memo: `AMENDED - Reverse expense: ${desc}`, sourceType: 'expense_amend_reversal', sourceId: original.id },
+    mirror(lines),
+  );
+  const replacementId = await appendBalancedEntry(
+    tx,
+    tenantId,
+    { date: expense.date, memo: `Expense (amended): ${desc}`, sourceType: 'expense_amend', sourceId: original.id },
+    newLines,
+  );
+  await tx.abExpense.update({ where: { id: expense.id }, data: { journalEntryId: replacementId } });
+  return { reposted: true, journalEntryId: replacementId };
+}
+
+/** The tax fields PR 2b adds to AbExpense; read structurally so untyped rows (and older clients) see null/0. */
+interface TaxFields {
+  taxCode?: string | null;
+  recoverableTaxCents?: number | null;
+}
+
+const isTypedExpense = (e: unknown): boolean => {
+  const code = (e as TaxFields).taxCode;
+  return typeof code === 'string' && code.length > 0;
+};
+
+type RepostExpense = NonNullable<Awaited<ReturnType<LedgerClient['abExpense']['findFirst']>>>;
+
+/**
+ * Tax-aware repost for a typed expense. The target shape is
+ *   DR category (amountCents − recoverableTaxCents)  — net + non-recoverable tax
+ *   DR 2100     (recoverableTaxCents)                 — omitted when 0
+ *   CR <the original credit account> (amountCents)    — cash or AP, gross
+ * recomputed from the expense row, so amount, category and tax edits all land
+ * balanced. Only an original with ONE credit line and at most one debit besides
+ * 2100 can be re-shaped without inventing an allocation; for anything else this
+ * returns null and the untyped rules apply (date-only edits ok, amount/category
+ * edits refused with ExpenseLedgerShapeError).
+ */
+async function repostTypedExpense(
+  tenantId: string,
+  expense: RepostExpense,
+  original: { id: string; date: Date },
+  lines: LedgerLine[],
+  tx: LedgerClient,
+  opts: RepostOptions,
+): Promise<{ reposted: boolean; journalEntryId: string | null; reason?: string } | null> {
+  const gross = expense.amountCents;
+  const recoverable = (expense as TaxFields).recoverableTaxCents ?? 0;
+  if (!Number.isInteger(recoverable) || recoverable < 0 || recoverable >= gross) throw new ExpenseLedgerShapeError();
+
+  const taxControl = await tx.abAccount.findFirst({
+    where: { tenantId, code: TAX_CONTROL_CODE },
+    select: { id: true },
+  });
+  const credits = lines.filter((l) => l.creditCents > 0);
+  const categoryDebits = lines.filter((l) => l.debitCents > 0 && l.accountId !== taxControl?.id);
+  const reshapeable =
+    credits.length === 1 &&
+    categoryDebits.length === 1 &&
+    lines.every((l) => (l.debitCents > 0) !== (l.creditCents > 0));
+  if (!reshapeable) return null;
+  const currentCategory = categoryDebits[0].accountId;
+
+  let categoryAccountId = currentCategory;
+  if (expense.categoryId) {
+    if (expense.categoryId !== currentCategory) {
+      categoryAccountId = (await validExpenseAccount(tx, tenantId, expense.categoryId)) ?? currentCategory;
+    }
+  } else if (opts.categoryChanged) {
+    categoryAccountId = (await suspenseAccountId(tx, tenantId)) ?? currentCategory;
+  }
+  if (recoverable > 0 && !taxControl) throw new ExpenseLedgerShapeError(); // no 2100 to debit
+
+  const desc = expense.description || 'Expense';
+  const taxLine = lines.find((l) => l.debitCents > 0 && l.accountId === taxControl?.id);
+  const newLines: LedgerLine[] = [
+    { accountId: categoryAccountId, debitCents: gross - recoverable, creditCents: 0, description: categoryDebits[0].description ?? desc },
+    ...(recoverable > 0
+      ? [{ accountId: (taxControl as { id: string }).id, debitCents: recoverable, creditCents: 0, description: taxLine?.description ?? 'Recoverable tax' }]
+      : []),
+    { accountId: credits[0].accountId, debitCents: 0, creditCents: gross, description: credits[0].description },
+  ];
+
+  const key = (l: LedgerLine) => `${l.accountId}|${l.debitCents}|${l.creditCents}`;
+  const before = lines.map(key).sort();
+  const after = newLines.map(key).sort();
+  const linesSame = before.length === after.length && before.every((k, i) => k === after[i]);
+  const dateChanged = !sameUtcDay(original.date, expense.date);
+  if (linesSame && !dateChanged) {
+    return { reposted: false, journalEntryId: original.id, reason: 'ledger already matches' };
+  }
+
+  await assertNotAlreadyReversed(tx, tenantId, expense.id, original.id, lines);
+  await assertPeriodOpen(tx, tenantId, original.date);
+  if (dateChanged) await assertPeriodOpen(tx, tenantId, expense.date);
+
   await appendBalancedEntry(
     tx,
     tenantId,
