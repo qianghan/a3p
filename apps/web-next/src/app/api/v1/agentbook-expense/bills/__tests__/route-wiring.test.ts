@@ -152,7 +152,26 @@ describe('void (DELETE) and amend (PATCH)', () => {
   });
 });
 
+describe('PATCH on a legacy bill', () => {
+  it('an at_payment bill cannot be amended (409 bill_not_at_entry) and nothing posts', async () => {
+    flagOn = false;
+    const legacy = (await (await createBill(req(B, { vendorName: 'Acme', amountCents: 5000, dueDate: '2026-12-02', categoryCode: '5200' }))).json()).data;
+    const res = await patchBill(req(`${B}/${legacy.id}`, { amountCents: 6000 }), ctx(legacy.id));
+    expect([res.status, (await res.json()).code, f.state.entries.length]).toEqual([409, 'bill_not_at_entry', 0]);
+    expect(f.state.bills[0].amountCents).toBe(5000);
+  });
+});
+
 describe('soft-deleted bills are gone (deletedAt)', () => {
+  it('void payment on a soft-deleted bill → 404, no reversal', async () => {
+    const bill = await newAtEntry();
+    const paid = await (await pay(bill.id, { amountCents: 1000 })).json();
+    f.state.bills[0].deletedAt = new Date('2026-11-12');
+    const res = await voidPaymentRoute(req(`${B}/${bill.id}/payments/${paid.payment.id}`), pctx(bill.id, paid.payment.id));
+    expect(res.status).toBe(404);
+    expect(f.state.entries.filter((e) => e.sourceType === 'bill_payment_void')).toHaveLength(0);
+  });
+
   it('GET / PUT / PATCH → 404 and nothing changes', async () => {
     flagOn = false;
     const legacy = (await (await createBill(req(B, { vendorName: 'Acme', amountCents: 5000, dueDate: '2026-12-02' }))).json()).data;

@@ -1,6 +1,6 @@
 import { test, expect, type BrowserContext, type Page } from '@playwright/test';
-import { catalogT, loginAs, loginUnavailableReason, newPersonaContext, pageLocales, settle } from './helpers';
-import { addDaysIso, listCategoryAccounts, runTag, todayIso, type ExpenseAccount, type Persona } from './fixtures';
+import { catalogT, loginAs, loginUnavailableReason, newPersonaContext, pageLocales, settle, type ControlPersona } from './helpers';
+import { addDaysIso, listCategoryAccounts, pnlSnapshot, runTag, todayIso, type ExpenseAccount, type Persona } from './fixtures';
 import { api, expectOk } from '../nightly/helpers/api';
 import { computeLineTax } from '../../../packages/agentbook-jurisdictions/src/tax-codes';
 
@@ -14,8 +14,17 @@ import { computeLineTax } from '../../../packages/agentbook-jurisdictions/src/ta
  *   GET purchases lists the bill once with badge 'paid'; a second bill is voided (every account back);
  *   sydney: BAS 1B moves by exactly the recoverable on the accrual date (or by payment pro-rata on cash GST).
  *   Fails loudly — never skips — when the persona's new bill is not at_entry, naming the enable script.
- * Phase `flag-off` (BILLS_E2E_PHASE=flag-off; 3bc.10 "deploy with flag off, verify legacy bills unchanged"):
- *   a bill is created at_payment with no ledger impact and pays exactly as before: DR category / CR 1000.
+ *   The P&L report's category line rises by the net exactly once (at create) and never again at payment.
+ *   Control: jordan (US) is NEVER enabled for the flag; every default run creates a legacy at_payment bill on him and
+ *   proves it pays exactly as before (DR category / CR 1000, no AP line ever, one row in purchases).
+ * Phase `flag-off` (BILLS_E2E_PHASE=flag-off): the one-time pre-enable run of the same legacy check on alex/maya/sydney.
+ *
+ * Post-deploy order (3bc.10):
+ *   1. deploy with the flag off;  BILLS_E2E_PHASE=flag-off  → legacy bills unchanged on alex/maya/sydney;
+ *   2. npx tsx agentbook/enable-purchases-at-entry.ts --apply   (alex, maya, sydney only; never jordan);
+ *   3. default run (flag-on) → at_entry lifecycle on the three markets + the jordan legacy control;
+ *   4. later, default-on for accrual tenants (`--global on --apply`): jordan then stops being an at_payment control,
+ *      so move the control to a cash-basis tenant before that step (the jordan block will fail loudly otherwise).
  *
  * Fixtures are tagged, dated today (UTC), created by the test and unwound in afterAll (payments voided, bill
  * voided); seeded data is never touched and tenant config is only read. Assertions are before/after deltas on the
@@ -70,7 +79,7 @@ async function bas1B(page: Page): Promise<number> {
   return res.data.data.label1BGstOnPurchasesCents as number;
 }
 
-async function openPersona(browser: import('@playwright/test').Browser, baseURL: string | undefined, persona: Persona): Promise<Ctx> {
+async function openPersona(browser: import('@playwright/test').Browser, baseURL: string | undefined, persona: Persona | ControlPersona): Promise<Ctx> {
   const context = await newPersonaContext(browser, baseURL);
   const page = await context.newPage();
   await loginAs(page, persona);
@@ -100,7 +109,7 @@ async function pay(page: Page, id: string, amountCents?: number): Promise<{ bill
 }
 
 /** Unwind a fixture bill: void its active payments, then void the bill. Logs, never throws. */
-async function unwind(ctx: Ctx | undefined, ids: string[]) {
+async function unwind(ctx: Ctx | undefined, ids: string[], tag: string) {
   if (!ctx) return;
   for (const id of ids) {
     try {
@@ -120,7 +129,26 @@ async function unwind(ctx: Ctx | undefined, ids: string[]) {
       console.error(`[bills e2e] afterAll could not unwind bill ${id}:`, err);
     }
   }
+  let leftover: unknown = null;
+  try { await expectNothingLeft(ctx, tag); } catch (err) { leftover = err; }
   try { await ctx.context.close(); } catch (err) { console.error('[bills e2e] afterAll context close failed:', err); }
+  if (leftover) throw leftover; // asserted, not just logged
+}
+
+/** After unwind: nothing of this run is left open (every tagged bill cancelled) and no tagged expense exists. */
+async function expectNothingLeft(ctx: Ctx | undefined, tag: string) {
+  if (!ctx) return;
+  const res = await api(ctx.page).get(`${EXPENSE}/bills?status=all`);
+  expectOk(res, 'list bills after cleanup');
+  const open = (res.data.data as Array<{ id: string; vendorName: string; status: string }>)
+    .filter((b) => b.vendorName.startsWith(tag) && b.status !== 'cancelled');
+  expect(open, 'cleanup left no tagged bill open').toEqual([]);
+  expect(await expenseIdsByTag(ctx.page, tag), 'cleanup left no tagged expense').toEqual([]);
+}
+
+/** P&L (accrual, today's window) expense on one account, from the real report route. */
+async function pnlOn(page: Page, accountId: string): Promise<number> {
+  return (await pnlSnapshot(page)).expenseByAccount[accountId] ?? 0;
 }
 
 async function firstPlainCategory(page: Page): Promise<ExpenseAccount> {
@@ -146,7 +174,7 @@ function atEntryLifecycle(persona: Persona, gross: number) {
       expect(ctx.cfg.accountingBasis ?? 'accrual', `${persona} is an accrual tenant (persona definition)`).not.toBe('cash');
       cat = await firstPlainCategory(ctx.page);
     });
-    test.afterAll(async () => unwind(ctx, created));
+    test.afterAll(async () => unwind(ctx, created, tag));
 
     test('create: an at_entry bill puts the total on AP, the net on the category, the recoverable on 2100, cash unchanged', async () => {
       const { page } = ctx;
@@ -154,6 +182,7 @@ function atEntryLifecycle(persona: Persona, gross: number) {
       const bs0 = await bsAp(page);
       const b0 = persona === 'sydney' ? await bas1B(page) : 0;
       const exp0 = await expenseIdsByTag(page, tag);
+      const pnl0 = await pnlOn(page, cat.id);
       bill = await createBill(page, {
         vendorName: `${tag} Supplies`, description: `${tag} bill`, amountCents: gross, categoryCode: cat.code,
         billDate: todayIso(), dueDate: addDaysIso(todayIso(), 30), idempotencyKey: `${tag}-a`,
@@ -173,6 +202,7 @@ function atEntryLifecycle(persona: Persona, gross: number) {
         ap: d(tb0, tb1, '2000'), cat: d(tb0, tb1, cat.code), tax: d(tb0, tb1, '2100'), cash: d(tb0, tb1, '1000'),
       }).toEqual({ ap: 0 - gross, cat: gross - rec, tax: rec, cash: 0 });
       expect(bs1.ap - bs0.ap, 'balance-sheet AP rose by the total').toBe(gross);
+      expect((await pnlOn(page, cat.id)) - pnl0, 'P&L category line rose by the net, at entry').toBe(gross - rec);
       expect([tb1.balanced, bs1.balanced]).toEqual([true, true]);
       expect(await expenseIdsByTag(page, tag), 'a bill is not an expense row').toEqual(exp0);
       if (persona === 'sydney') {
@@ -187,6 +217,7 @@ function atEntryLifecycle(persona: Persona, gross: number) {
       const tb0 = await trialBalance(page);
       const bs0 = await bsAp(page);
       const b0 = persona === 'sydney' ? await bas1B(page) : 0;
+      const pnl0 = await pnlOn(page, cat.id);
       const { bill: after } = await pay(page, bill.id, half);
       expect([after.status, after.paidCents]).toEqual(['partial', half]);
       const tb1 = await trialBalance(page);
@@ -194,6 +225,7 @@ function atEntryLifecycle(persona: Persona, gross: number) {
         .toEqual({ ap: half, cash: 0 - half, cat: 0, tax: 0 });
       expect(bs0.ap - (await bsAp(page)).ap, 'balance-sheet AP fell by half').toBe(half);
       expect(await expenseIdsByTag(page, tag), 'paying a bill never creates an expense').toEqual([]);
+      expect((await pnlOn(page, cat.id)) - pnl0, 'P&L expense not counted again at payment').toBe(0);
       if (persona === 'sydney' && ctx.cfg.gstReportingBasis === 'cash') {
         expect((await bas1B(page)) - b0, 'cash GST: 1B pro-rata by payment').toBe(Math.round((rec * half) / gross));
       }
@@ -203,11 +235,13 @@ function atEntryLifecycle(persona: Persona, gross: number) {
       const { page } = ctx;
       const rest = gross - Math.floor(gross / 2);
       const tb0 = await trialBalance(page);
+      const pnl0 = await pnlOn(page, cat.id);
       const { bill: after } = await pay(page, bill.id);
       expect([after.status, after.paidCents]).toEqual(['paid', gross]);
       const tb1 = await trialBalance(page);
       expect({ ap: d(tb0, tb1, '2000'), cash: d(tb0, tb1, '1000'), cat: d(tb0, tb1, cat.code) }).toEqual({ ap: rest, cash: 0 - rest, cat: 0 });
       expect(await expenseIdsByTag(page, tag)).toEqual([]);
+      expect((await pnlOn(page, cat.id)) - pnl0, 'P&L expense not counted again at full payment').toBe(0);
     });
 
     test('GET purchases lists the bill exactly once, badge paid', async () => {
@@ -239,8 +273,8 @@ function atEntryLifecycle(persona: Persona, gross: number) {
   });
 }
 
-function legacyAtPayment(persona: Persona, gross: number) {
-  test.describe(`bills legacy at_payment (flag off) - ${persona}`, () => {
+function legacyAtPayment(persona: Persona | ControlPersona, gross: number, label = 'flag off') {
+  test.describe(`bills legacy at_payment (${label}) - ${persona}`, () => {
     let ctx: Ctx;
     const created: string[] = [];
     const tag = runTag(`E2EBILLL${persona.slice(0, 2).toUpperCase()}`);
@@ -251,22 +285,31 @@ function legacyAtPayment(persona: Persona, gross: number) {
       test.skip(reason !== null, reason ?? '');
       ctx = await openPersona(browser, testInfo.project.use.baseURL, persona);
     });
-    test.afterAll(async () => unwind(ctx, created));
+    test.afterAll(async () => unwind(ctx, created, tag));
 
     test('created at_payment with no ledger impact; paying books DR category / CR 1000 as before', async () => {
       const { page } = ctx;
       const cat = await firstPlainCategory(page);
       const tb0 = await trialBalance(page);
+      const pnl0 = await pnlOn(page, cat.id);
       const bill = await createBill(page, { vendorName: `${tag} Legacy`, amountCents: gross, categoryCode: cat.code, dueDate: addDaysIso(todayIso(), 14) });
       created.push(bill.id);
-      expect(bill.postingMode, `flag must be OFF for ${persona} in this phase: ${ENABLE.replace('--apply', '--remove --apply')}`).toBe('at_payment');
+      const off = ENABLE.replace('--apply', `--remove --email ${persona}@agentbook.test --apply`);
+      expect(bill.postingMode, `flag must be OFF for ${persona} here (it is the legacy control): ${off}`).toBe('at_payment');
       const tb1 = await trialBalance(page);
       expect([d(tb0, tb1, '2000'), d(tb0, tb1, cat.code), d(tb0, tb1, '1000')]).toEqual([0, 0, 0]);
+      expect((await pnlOn(page, cat.id)) - pnl0, 'no P&L impact before payment').toBe(0);
       const { bill: paid } = await pay(page, bill.id);
       expect(paid.status).toBe('paid');
       const tb2 = await trialBalance(page);
       expect({ cat: d(tb1, tb2, cat.code), cash: d(tb1, tb2, '1000'), ap: d(tb1, tb2, '2000') }).toEqual({ cat: gross, cash: 0 - gross, ap: 0 });
       expect(tb2.balanced).toBe(true);
+      expect((await pnlOn(page, cat.id)) - pnl0, 'P&L expense counted once, at payment').toBe(gross);
+      const res = await api(page).get(`${EXPENSE}/purchases?kind=bill&limit=200`);
+      expectOk(res, 'purchases');
+      const mine = (res.data.data as Array<{ id: string; status: string; amountCents: number }>).filter((r) => r.id === bill.id);
+      expect(mine.map((r) => [r.status, r.amountCents]), 'the bill is listed once, paid').toEqual([['paid', gross]]);
+      expect(await expenseIdsByTag(page, tag), 'a legacy bill is not an expense row').toEqual([]);
     });
   });
 }
@@ -275,6 +318,8 @@ if (PHASE === 'flag-on') {
   atEntryLifecycle('alex', 12000);
   atEntryLifecycle('maya', 11300);
   atEntryLifecycle('sydney', 11000);
+  // Legacy control on EVERY default run: jordan is never enabled for purchases_at_entry.
+  legacyAtPayment('jordan', 4321, 'control, never flagged');
 } else {
   legacyAtPayment('alex', 4321);
   legacyAtPayment('maya', 4321);

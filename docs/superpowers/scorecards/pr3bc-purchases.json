@@ -4,7 +4,9 @@
   "goals": [
     {
       "id": "G1-writer",
-      "covers": ["R-LED-1"],
+      "covers": [
+        "R-LED-1"
+      ],
       "text": "Every bill posting (create at_entry, pay, partial pay, void, void payment, amend) and the legacy at_payment pay goes through lib/purchases on the ledger writer: balanced, closed-period gate, idempotent replay on (tenantId, sourceType, sourceId); route-level wiring tests assert the journal lines of each bills route and each call into lib/purchases is mutation-checked.",
       "tests": [
         "apps/web-next/src/lib/__tests__/purchases.test.ts",
@@ -15,7 +17,9 @@
     },
     {
       "id": "G2-returns",
-      "covers": ["R-TAX-4"],
+      "covers": [
+        "R-TAX-4"
+      ],
       "text": "Bills feed AU BAS 1B/G10/G11 and CA line 108 from their line data: accrual by billDate, cash GST by AbBillPayment.date pro-rata (golden fixtures incl. partial payments and a quarter boundary).",
       "tests": [
         "apps/web-next/src/__tests__/api/v1/agentbook-tax/au-bas-bills-route.test.ts",
@@ -26,7 +30,9 @@
     },
     {
       "id": "G3-at-entry",
-      "covers": ["R-AP-1"],
+      "covers": [
+        "R-AP-1"
+      ],
       "text": "For an accrual tenant with purchases_at_entry on (globally or by per-tenant allowlist in FeatureFlag.metadata.tenantIds), a new bill posts DR category net | DR 2100 recoverable | CR 2000 gross on its bill date; a cash-basis tenant never does.",
       "tests": [
         "apps/web-next/src/lib/__tests__/purchases.test.ts",
@@ -36,7 +42,9 @@
     },
     {
       "id": "G4-pay",
-      "covers": ["R-AP-2"],
+      "covers": [
+        "R-AP-2"
+      ],
       "text": "Paying an at_entry bill in full or in part posts DR 2000 / CR 1000 and creates no expense row; overpayment is 422; concurrent payments cannot overpay.",
       "tests": [
         "apps/web-next/src/lib/__tests__/purchases.test.ts",
@@ -46,17 +54,22 @@
     },
     {
       "id": "G5-legacy",
-      "covers": ["R-AP-3"],
-      "text": "at_payment bills and cash-basis tenants pay exactly as before (DR expense / CR 1000) through the writer with a real payment sourceId, a period gate and no silent fallback account; DELETE of a paid bill is refused; soft-deleted bills are 404 on GET/PUT/PATCH.",
+      "covers": [
+        "R-AP-3"
+      ],
+      "text": "at_payment bills and cash-basis tenants pay exactly as before (DR expense / CR 1000) through the writer with a real payment sourceId, a period gate and no silent fallback account; DELETE of a paid bill is refused; soft-deleted bills are 404 on GET/PUT/PATCH. Unflagged tenants are proven with the REAL flag module (no row / metadata absent / other tenant listed). Prod evidence on every default run: tests/e2e/mobile-app/bills.spec.ts 'bills legacy at_payment (control, never flagged) - jordan' (manifest goals take vitest files only; the e2e is in launch.prodPlaywright).",
       "tests": [
         "apps/web-next/src/__tests__/api/v1/agentbook-expense/bills-legacy-pay-route.test.ts",
         "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-wiring.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-real-flag.test.ts",
         "apps/web-next/src/lib/__tests__/purchases-flag.test.ts"
       ]
     },
     {
       "id": "G6-readers",
-      "covers": ["R-AP-4"],
+      "covers": [
+        "R-AP-4"
+      ],
       "text": "Every reader treats open|partial as unpaid (bills GET, aging, Home, Upcoming, CPA run, manage-bills, cpa-review); the balance sheet balances for mixed legacy/new bills and counts no bill twice.",
       "tests": [
         "apps/web-next/src/lib/__tests__/balance-sheet-mixed-bills.test.ts",
@@ -67,7 +80,9 @@
     },
     {
       "id": "G7-cash-guard",
-      "covers": ["R-AP-5"],
+      "covers": [
+        "R-AP-5"
+      ],
       "text": "?basis=cash is disabled with a localized banner (Reports) and a Settings basis note while open at_entry bills exist.",
       "tests": [
         "apps/web-next/src/__tests__/api/v1/agentbook-tax/cash-basis-guard-route.test.ts",
@@ -77,7 +92,9 @@
     },
     {
       "id": "G8-purchase-view",
-      "covers": ["R-AP-6"],
+      "covers": [
+        "R-AP-6"
+      ],
       "text": "GET purchases returns one row per bill with a Due/Paid badge among expenses; the mobile Docs list and the desktop expense list render it, and a paid bill is never an expense row.",
       "tests": [
         "apps/web-next/src/lib/__tests__/purchases-view.test.ts",

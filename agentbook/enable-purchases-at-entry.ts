@@ -18,6 +18,8 @@ import { prisma as db } from '@naap/database';
 
 const KEY = 'purchases_at_entry';
 const PERSONAS = ['alex@agentbook.test', 'maya@agentbook.test', 'sydney@agentbook.test'];
+/** Legacy control persona: bills.spec.ts proves at_payment on it every run. */
+const NEVER_ENABLE = ['jordan@agentbook.test'];
 
 function argValues(flag: string): string[] {
   const out: string[] = [];
@@ -40,6 +42,11 @@ async function main() {
 
   if (!global) {
     for (const email of emails) {
+      if (!remove && NEVER_ENABLE.includes(email)) {
+        console.log(`  ✗ ${email}: the legacy at_payment control (tests/e2e/mobile-app/bills.spec.ts), never enabled — skipped`);
+        process.exitCode = 1;
+        continue;
+      }
       const user = await db.user.findUnique({ where: { email }, select: { id: true } });
       if (!user) { console.log(`  ✗ ${email}: no user, skipped`); process.exitCode = 1; continue; }
       const cfg = await db.abTenantConfig.findUnique({ where: { userId: user.id }, select: { accountingBasis: true } });

@@ -115,32 +115,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // PR 3bc: accrual tenants post AP at entry — behind `purchases_at_entry`
     // (global or per-tenant allowlist). Cash-basis tenants never do (R-AP-3).
     if (await purchasesAtEntryApplies(tenantId, cfg)) {
-      {
-        // Omitted → the engine dates it today; a replay then ignores the date.
-        const billDate = body.billDate ? new Date(body.billDate) : undefined;
-        if (billDate && isNaN(billDate.getTime())) {
-          return NextResponse.json({ success: false, error: 'invalid billDate' }, { status: 400 });
+      // Omitted → the engine dates it today; a replay then ignores the date.
+      const billDate = body.billDate ? new Date(body.billDate) : undefined;
+      if (billDate && isNaN(billDate.getTime())) {
+        return NextResponse.json({ success: false, error: 'invalid billDate' }, { status: 400 });
+      }
+      const category = body.categoryCode
+        ? await db.abAccount.findFirst({ where: { tenantId, code: body.categoryCode, accountType: 'expense' } })
+        : null;
+      if (body.categoryCode && !category) {
+        return NextResponse.json({ success: false, code: 'invalid_category', error: 'unknown categoryCode' }, { status: 422 });
+      }
+      try {
+        const { bill, replayed } = await postBill(db, tenantId, {
+          vendorName: body.vendorName, description: body.description ?? null, billNumber: body.billNumber ?? null,
+          billDate, dueDate: due, currency: body.currency ?? null, postingMode: 'at_entry',
+          idempotencyKey: body.idempotencyKey ?? request.headers.get('idempotency-key'),
+          lines: [{ description: body.description || body.vendorName, amountCents: body.amountCents, categoryId: category?.id ?? null, taxCode: body.taxCode }],
+        });
+        return NextResponse.json({ success: true, data: bill }, { status: replayed ? 200 : 201 });
+      } catch (err) {
+        if (err instanceof PurchaseError) {
+          return NextResponse.json({ success: false, code: err.code, error: publicErrorMessage(err) }, { status: err.status });
         }
-        const category = body.categoryCode
-          ? await db.abAccount.findFirst({ where: { tenantId, code: body.categoryCode, accountType: 'expense' } })
-          : null;
-        if (body.categoryCode && !category) {
-          return NextResponse.json({ success: false, code: 'invalid_category', error: 'unknown categoryCode' }, { status: 422 });
-        }
-        try {
-          const { bill, replayed } = await postBill(db, tenantId, {
-            vendorName: body.vendorName, description: body.description ?? null, billNumber: body.billNumber ?? null,
-            billDate, dueDate: due, currency: body.currency ?? null, postingMode: 'at_entry',
-            idempotencyKey: body.idempotencyKey ?? request.headers.get('idempotency-key'),
-            lines: [{ description: body.description || body.vendorName, amountCents: body.amountCents, categoryId: category?.id ?? null, taxCode: body.taxCode }],
-          });
-          return NextResponse.json({ success: true, data: bill }, { status: replayed ? 200 : 201 });
-        } catch (err) {
-          if (err instanceof PurchaseError) {
-            return NextResponse.json({ success: false, code: err.code, error: publicErrorMessage(err) }, { status: err.status });
-          }
-          throw err;
-        }
+        throw err;
       }
     }
 

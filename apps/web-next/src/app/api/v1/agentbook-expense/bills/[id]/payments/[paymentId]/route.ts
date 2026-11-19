@@ -2,14 +2,14 @@
  * DELETE /bills/:id/payments/:paymentId — void one bill payment (PR 3bc).
  * Posts the mirror of the payment's entry (`bill_payment_void`, keyed by the
  * payment id) through lib/purchases and reopens the bill. A payment that is not
- * this tenant's, or not this bill's, is 404.
+ * this tenant's, or not this bill's, or whose bill is soft-deleted, is 404.
  */
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
-import { voidPayment, PurchaseError } from '@/lib/purchases';
+import { liveBillWhere, voidPayment, PurchaseError } from '@/lib/purchases';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +27,9 @@ export async function DELETE(request: NextRequest, ctx: RouteCtx): Promise<NextR
     const { id, paymentId } = await ctx.params;
     const owned = await db.abBillPayment.findFirst({ where: { id: paymentId, billId: id, tenantId } });
     if (!owned) return NextResponse.json({ success: false, code: 'payment_not_found', error: 'payment not found' }, { status: 404 });
+    // A soft-deleted bill is gone: its payments are not voidable through it.
+    const live = await db.abBill.findFirst({ where: { id, tenantId, ...liveBillWhere() } });
+    if (!live) return NextResponse.json({ success: false, code: 'bill_not_found', error: 'bill not found' }, { status: 404 });
     const { bill, payment } = await voidPayment(db, tenantId, paymentId);
     return NextResponse.json({ success: true, data: bill, payment });
   } catch (err) {
