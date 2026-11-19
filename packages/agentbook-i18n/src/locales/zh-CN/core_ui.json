@@ -323,5 +323,14 @@
   "gst_registered_no": "否 — 未注册",
   "gst_help_registered": "发票加收 10% GST，抬头为“Tax Invoice”。",
   "gst_help_not_registered": "发票不含 GST，抬头为“Invoice”。",
-  "gst_help_unknown": "尚未填写：发票加收 10% GST。只有已注册 GST 的企业才可收取。营业额超过 75,000 澳元后为强制注册。"
+  "gst_help_unknown": "尚未填写：发票加收 10% GST。只有已注册 GST 的企业才可收取。营业额超过 75,000 澳元后为强制注册。",
+  "gst_registered_ca_hint": "（加拿大 — GST/HST）",
+  "gst_prompt_set_registration": "请告知您是否已注册。在此之前，采购将按全额记账，不抵扣税款。",
+  "qst_registered_label": "已注册魁北克销售税（QST）？",
+  "qst_help_registered": "采购中已付的 QST 将作为进项税抵免申领。",
+  "qst_help_other": "采购中已付的 QST 仍计入费用。",
+  "gst_basis_label": "GST 申报基础",
+  "gst_basis_accrual": "权责发生制 — 开票时",
+  "gst_basis_cash": "现金制 — 付款时",
+  "gst_basis_help": "决定采购的税款抵免计入 GST 申报的哪个期间。"
 }

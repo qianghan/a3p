@@ -92,6 +92,8 @@ interface UpdateConfigBody {
   companyAddress?: string | null;
   abn?: string | null; // AU business number, rendered on the invoice (M5)
   gstRegistered?: boolean | null; // AU: registered for GST. null = not asked; see the AU pack's auGstApplies
+  qstRegistered?: boolean | null; // CA/QC: registered for QST. null = not asked
+  gstReportingBasis?: 'accrual' | 'cash' | null; // AU/CA GST reporting basis; null = accrual
   brandColor?: string;
 }
 
@@ -148,7 +150,20 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     if (body.abn !== undefined) update.abn = body.abn;
     // Tri-state: true / false / null ("not answered"). `null` is a real value
     // here, not an omission, so it must survive the round trip.
-    if (body.gstRegistered !== undefined) update.gstRegistered = body.gstRegistered;
+    for (const key of ['gstRegistered', 'qstRegistered'] as const) {
+      const v = body[key];
+      if (v === undefined) continue;
+      if (v !== null && typeof v !== 'boolean') {
+        return NextResponse.json({ error: `${key} must be true, false, or null` }, { status: 400 });
+      }
+      update[key] = v;
+    }
+    if (body.gstReportingBasis !== undefined) {
+      if (body.gstReportingBasis !== null && body.gstReportingBasis !== 'accrual' && body.gstReportingBasis !== 'cash') {
+        return NextResponse.json({ error: "gstReportingBasis must be 'accrual', 'cash', or null" }, { status: 400 });
+      }
+      update.gstReportingBasis = body.gstReportingBasis;
+    }
     if (body.brandColor) update.brandColor = body.brandColor;
     if (body.currency) update.currency = body.currency;
     // `locale` now drives UI translation, not just number/date formatting, so
