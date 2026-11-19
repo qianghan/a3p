@@ -97,6 +97,7 @@ export function computeGstHstReturn(input: GstHstReturnInput): GstHstReturn {
     if (!typed) { line108 += p.taxPaidCents; continue; }
     const rec = p.recoverableTaxCents ?? 0;
     if (p.taxCode === 'GST_QST' && rec !== 0) {
+      // Invariant: gst + qst === rec exactly; each component may differ from the stored split by <=2c when printed OCR tax was adopted.
       const { gst, qst } = splitGstQst(p, rec, input);
       line108 += gst;
       qstItr += qst;
