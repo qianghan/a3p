@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { encryptPii, decryptPii, PiiKeyUnconfiguredError, isPiiKeyUnconfigured } from '../agentbook-employee-pii';
-import { isValidTfn, isValidSin, isValidSsn, isMaskedInput, maskEmployee } from '../agentbook-employee-profile';
+import { isValidTfn, isValidSin, isValidSsn, isMaskedEcho, isValidBankAccount, maskEmployee } from '../agentbook-employee-profile';
 
 const ENV = { ...process.env };
 beforeEach(() => { process.env = { ...ENV }; delete process.env.EMPLOYEE_PII_ENCRYPTION_KEY; delete process.env.VERCEL_ENV; });
@@ -76,10 +76,20 @@ describe('tax-id validators', () => {
     expect(isValidSsn('123-45-6789')).toBe(true);
     for (const bad of ['000-12-3456', '666-12-3456', '912-12-3456', '123-00-4567', '123-45-0000', '12345']) expect(isValidSsn(bad)).toBe(false);
   });
-  it('masked echoes are recognised', () => {
-    expect(isMaskedInput('***-**-6789')).toBe(true);
-    expect(isMaskedInput('••••6789')).toBe(true);
-    expect(isMaskedInput('123-45-6789')).toBe(false);
+  it('only exact masked renderings of the stored last4 are echoes', () => {
+    expect(isMaskedEcho('***-**-6789', '6789')).toBe(true);
+    expect(isMaskedEcho('•••• 6789', '6789')).toBe(true);
+    expect(isMaskedEcho('****', null)).toBe(true);
+    expect(isMaskedEcho('***-**-1111', '6789')).toBe(false);
+    expect(isMaskedEcho('MX12345', null)).toBe(false);
+    expect(isMaskedEcho('123-45-6789', '6789')).toBe(false);
+  });
+  it('bank account needs full per-jurisdiction length', () => {
+    expect(isValidBankAccount('au', '062-000 12345678')).toBe(true);
+    expect(isValidBankAccount('au', '5678')).toBe(false);
+    expect(isValidBankAccount('ca', '12345-003-1234567')).toBe(true);
+    expect(isValidBankAccount('us', '021000021' + '1234')).toBe(true);
+    expect(isValidBankAccount('us', '…5678')).toBe(false);
   });
 });
 

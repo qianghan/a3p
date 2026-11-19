@@ -41,9 +41,32 @@ export function isValidSsn(raw: string): boolean {
   return area !== '000' && area !== '666' && area[0] !== '9' && group !== '00' && serial !== '0000';
 }
 
-/** A value echoed back from the masked view (e.g. `***-**-1234`, `••••1234`) — never overwrites. */
-export function isMaskedInput(raw: string): boolean {
-  return /[*•xX]/.test(raw);
+/**
+ * The exact masked renderings a client may echo back for a stored value with
+ * `last4`. Only these shapes (or a string made purely of mask characters,
+ * which carries no data) mean "unchanged" — a real value that merely contains
+ * an x/X/* (e.g. member number "MX12345") is NOT treated as masked.
+ */
+export function maskedRenderings(last4: string): string[] {
+  return [`***-**-${last4}`, `***-***-${last4}`, `•••• ${last4}`, `••••${last4}`, `****${last4}`, `**** ${last4}`];
+}
+
+export function isMaskedEcho(raw: string, storedLast4: string | null | undefined): boolean {
+  const v = raw.trim();
+  if (/^[*•]+$/.test(v)) return true;
+  return Boolean(storedLast4) && maskedRenderings(storedLast4 as string).includes(v);
+}
+
+/**
+ * Full bank account (digits only, separators stripped) per jurisdiction —
+ * a last-4 echo can never pass: AU BSB(6)+account(5-9); CA transit(5)+
+ * institution(3)+account(7-12); US routing(9)+account(4-17); UK sort(6)+account(8).
+ */
+export function isValidBankAccount(jurisdiction: string, raw: string): boolean {
+  const d = raw.replace(/[\s-]/g, '');
+  if (!/^\d+$/.test(d)) return false;
+  const [min, max] = ({ au: [11, 15], ca: [15, 20], us: [13, 26], uk: [14, 14] } as Record<string, [number, number]>)[jurisdiction] ?? [0, -1];
+  return d.length >= min && d.length <= max;
 }
 
 export function validateTaxId(jurisdiction: string, raw: string): boolean {

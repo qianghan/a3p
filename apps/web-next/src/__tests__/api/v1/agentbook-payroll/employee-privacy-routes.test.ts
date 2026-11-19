@@ -59,7 +59,7 @@ import { encryptPii } from '@/lib/agentbook-employee-pii';
 const TFN = '123456782';
 const SIN = '046454286';
 const SSN = '123-45-6789';
-const BANK = '0011223344';
+const BANK = '06200012345678'; // AU BSB 062-000 + account 12345678 (also valid US length)
 const MEMBER = 'MEM77881';
 
 function req(method: string, id: string, body?: unknown, opts: { token?: string | null; headers?: Record<string, string> } = {}) {
@@ -200,6 +200,55 @@ describe('PUT employees/[id] — strict, per-jurisdiction', () => {
   });
 });
 
+describe('PUT — masked echoes, bank length, labels, jurisdiction (review I1/I2)', () => {
+  it('a real member number containing X is saved (not mistaken for a mask)', async () => {
+    const res = await PUT(req('PUT', 'e-au', { superMemberNumber: 'MX12345' }), ctx('e-au'));
+    expect(res.status).toBe(200);
+    expect(store.sensitive[0].superMemberNumberEnc).toBeTruthy();
+    expect(store.changes.at(-1)!.fields).toEqual(['superMemberNumber']);
+  });
+
+  it.each(['***-**-6789', '•••• 6789', '****6789', '••••••'])('exact masked echo %s does not overwrite the SSN', async (echo) => {
+    await PUT(req('PUT', 'e-us', { taxId: SSN }), ctx('e-us'));
+    const enc = store.sensitive[0].taxIdEnc;
+    const n = store.changes.length;
+    expect((await PUT(req('PUT', 'e-us', { taxId: echo }), ctx('e-us'))).status).toBe(200);
+    expect(store.sensitive[0].taxIdEnc).toBe(enc);
+    expect(store.changes.length).toBe(n);
+  });
+
+  it('a masked string that is not the stored rendering is rejected, not ignored', async () => {
+    await PUT(req('PUT', 'e-us', { taxId: SSN }), ctx('e-us'));
+    expect((await PUT(req('PUT', 'e-us', { taxId: '***-**-1111' }), ctx('e-us'))).status).toBe(400);
+  });
+
+  it.each(['5678', '…5678', '12345'])('bank last-4 / short echo %s → 400, real account kept', async (echo) => {
+    await PUT(req('PUT', 'e-au', { bankAccount: BANK }), ctx('e-au'));
+    const enc = store.sensitive[0].bankAccountEnc;
+    expect((await PUT(req('PUT', 'e-au', { bankAccount: echo }), ctx('e-au'))).status).toBe(400);
+    expect(store.sensitive[0].bankAccountEnc).toBe(enc);
+  });
+
+  it('unchanged label fields are not logged as changed', async () => {
+    await PUT(req('PUT', 'e-au', { bankRoutingLabel: 'BSB 062-000', superFundName: 'AustralianSuper' }), ctx('e-au'));
+    const n = store.changes.length;
+    await PUT(req('PUT', 'e-au', { bankRoutingLabel: 'BSB 062-000', superFundName: 'AustralianSuper' }), ctx('e-au'));
+    expect(store.changes.length).toBe(n);
+    await PUT(req('PUT', 'e-au', { bankRoutingLabel: 'BSB 062-001', superFundName: 'AustralianSuper' }), ctx('e-au'));
+    expect(store.changes.at(-1)!.fields).toEqual(['bankRoutingLabel']);
+  });
+
+  it('jurisdiction change with a stored tax id requires re-entry', async () => {
+    await PUT(req('PUT', 'e-us', { taxId: SSN }), ctx('e-us'));
+    const res = await PUT(req('PUT', 'e-us', { jurisdiction: 'ca' }), ctx('e-us'));
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe('tax_id_reentry_required');
+    expect(store.employees.find((e) => e.id === 'e-us')!.jurisdiction).toBe('us');
+    expect((await PUT(req('PUT', 'e-us', { jurisdiction: 'ca', taxId: SIN }), ctx('e-us'))).status).toBe(200);
+    expect(store.sensitive[0].taxIdLast4).toBe('4286');
+  });
+});
+
 describe('GET employees/[id] — masked', () => {
   it('returns last4 and flags, never ciphertext or plaintext', async () => {
     await PUT(req('PUT', 'e-au', { taxId: TFN, bankAccount: BANK, superMemberNumber: MEMBER }), ctx('e-au'));
@@ -209,7 +258,7 @@ describe('GET employees/[id] — masked', () => {
     expectNoSecrets(text);
     expect(text).not.toMatch(/Enc"/);
     const s = JSON.parse(text).data.sensitive;
-    expect(s).toMatchObject({ hasTaxId: true, taxIdLast4: '6782', hasBankAccount: true, bankLast4: '3344', hasSuperMemberNumber: true });
+    expect(s).toMatchObject({ hasTaxId: true, taxIdLast4: '6782', hasBankAccount: true, bankLast4: '5678', hasSuperMemberNumber: true });
   });
 
   it('cross-tenant id → 404', async () => {

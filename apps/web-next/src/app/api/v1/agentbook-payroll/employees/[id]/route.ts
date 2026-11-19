@@ -21,7 +21,7 @@ import { publicErrorMessage } from '@/lib/api-error';
 import { resolveSessionUserId } from '@/lib/agentbook-session-owner';
 import { encryptPii, isPiiKeyUnconfigured, PII_KEY_UNCONFIGURED } from '@/lib/agentbook-employee-pii';
 import {
-  employeeUpdateSchema, maskEmployee, isMaskedInput, validateTaxId, SENSITIVE_INPUT_KEYS,
+  employeeUpdateSchema, maskEmployee, isMaskedEcho, isValidBankAccount, validateTaxId, SENSITIVE_INPUT_KEYS,
 } from '@/lib/agentbook-employee-profile';
 
 export const runtime = 'nodejs';
@@ -80,14 +80,23 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
       if (v !== undefined) update[k] = v;
     }
 
-    // Sensitive fields. Masked echoes from the UI are "unchanged".
+    // Sensitive fields. Only the exact masked rendering of the STORED value
+    // (or a pure mask string) means "unchanged" — see isMaskedEcho.
+    const stored = await db.abEmployeeSensitive.findUnique({ where: { employeeId: id } });
+    const current = stored && stored.tenantId === tenantId ? stored : null;
     const sens: Record<string, string | null> = {};
     const changedSensitive: string[] = [];
-    const taxId = input.taxId && !isMaskedInput(input.taxId) ? input.taxId : undefined;
-    const bankAccount = input.bankAccount && !isMaskedInput(input.bankAccount) ? input.bankAccount : undefined;
-    const member = input.superMemberNumber && !isMaskedInput(input.superMemberNumber) ? input.superMemberNumber : undefined;
+    const taxId = input.taxId && !isMaskedEcho(input.taxId, current?.taxIdLast4) ? input.taxId : undefined;
+    const bankAccount = input.bankAccount && !isMaskedEcho(input.bankAccount, current?.bankLast4) ? input.bankAccount : undefined;
+    const member = input.superMemberNumber && !isMaskedEcho(input.superMemberNumber, null) ? input.superMemberNumber : undefined;
     if (taxId !== undefined && !validateTaxId(jurisdiction, taxId)) return bad(`invalid tax id for jurisdiction ${jurisdiction}`);
-    if (bankAccount !== undefined && !/^\d{4,17}$/.test(bankAccount.replace(/[\s-]/g, ''))) return bad('invalid bank account');
+    if (bankAccount !== undefined && !isValidBankAccount(jurisdiction, bankAccount)) return bad(`invalid bank account for jurisdiction ${jurisdiction}`);
+    // Jurisdiction change: a stored tax id was validated for the OLD
+    // jurisdiction (TFN vs SIN vs SSN) and cannot be re-validated without
+    // decrypting it, so the change must carry a new tax id for the new one.
+    if (input.jurisdiction && input.jurisdiction !== existing.jurisdiction && current?.taxIdEnc && taxId === undefined) {
+      return NextResponse.json({ success: false, code: 'tax_id_reentry_required', error: `Changing jurisdiction requires re-entering the tax id for ${input.jurisdiction}.` }, { status: 400 });
+    }
 
     try {
       if (taxId !== undefined) {
@@ -106,7 +115,10 @@ export async function PUT(request: NextRequest, ctx: RouteCtx): Promise<NextResp
       throw err;
     }
     for (const k of ['bankRoutingLabel', 'superFundUsi', 'superFundName'] as const) {
-      if (input[k] !== undefined) { sens[k] = input[k] ?? null; changedSensitive.push(k); }
+      if (input[k] === undefined) continue;
+      const next = input[k] ?? null;
+      if ((current?.[k] ?? null) === next) continue; // unchanged: not written, not logged
+      sens[k] = next; changedSensitive.push(k);
     }
 
     const changedPlain = Object.keys(update).filter((k) => {
