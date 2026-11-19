@@ -337,7 +337,22 @@
     "queue_error_unauthorized": "Reconnectez-vous pour envoyer ce reçu.",
     "queue_error_too_large": "Trop volumineux pour être envoyé. Abandonnez-le et reprenez une photo plus légère.",
     "queue_error_unreadable": "Impossible de lire cette photo. Abandonnez-la et reprenez-la.",
-    "queue_retry_done": "Synchronisation : {sent} envoyées · {remaining} en attente"
+    "queue_retry_done": "Synchronisation : {sent} envoyées · {remaining} en attente",
+    "tax_code_label": "Code de taxe",
+    "tax_mode_label": "Comment le montant est saisi",
+    "tax_inclusive": "Montant taxes incluses",
+    "tax_exclusive": "Taxes en sus",
+    "tax_amount": "Taxes {tax} · total {total}",
+    "tax_printed": "Sur le reçu : {label} {amount}",
+    "tax_registration_prompt": "Êtes-vous inscrit à la TPS ? Dites-le-nous pour que nous puissions réclamer vos crédits de taxe sur les intrants.",
+    "tax_registration_link": "Ouvrir le profil d’entreprise",
+    "tax_code_gst_free": "Exonéré de GST",
+    "tax_code_input_taxed": "Imposé à l’entrée",
+    "tax_code_no_gst": "Sans GST",
+    "tax_code_capital": "Achat d’immobilisation",
+    "tax_code_zero_rated": "Détaxé",
+    "tax_code_exempt": "Exonéré",
+    "tax_code_out_of_scope": "Hors champ"
   },
   "chat": {
     "title": "Demandez à votre conseiller",
