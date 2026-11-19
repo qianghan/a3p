@@ -289,7 +289,8 @@
     "not_found": "Ce document n’existe plus.",
     "load_failed": "Impossible de charger ce document.",
     "archived_banner": "Archivé. Masqué de vos listes, mais ses montants comptent toujours.",
-    "needs_review_banner": "En attente de votre révision"
+    "needs_review_banner": "En attente de votre révision",
+    "confirm_period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date."
   },
   "capture": {
     "title": "Saisir une dépense",
@@ -352,7 +353,8 @@
     "tax_code_capital": "Achat d’immobilisation",
     "tax_code_zero_rated": "Détaxé",
     "tax_code_exempt": "Exonéré",
-    "tax_code_out_of_scope": "Hors champ"
+    "tax_code_out_of_scope": "Hors champ",
+    "period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date."
   },
   "chat": {
     "title": "Demandez à votre conseiller",

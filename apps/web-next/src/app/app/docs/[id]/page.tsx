@@ -303,9 +303,10 @@ function DocViewer({ id }: { id: string }) {
       await confirmDoc(before.id);
       persist({ ...before, status: 'confirmed' });
       toast.show(t('mobile.docs.reviewed'), { tone: 'good' });
-    } catch {
+    } catch (e) {
       setDoc(before);
-      toast.show(t('mobile.docs.confirm_failed'), { tone: 'critical' });
+      const closed = (e as { status?: unknown } | null)?.status === 422;
+      toast.show(t(closed ? 'mobile.docs.confirm_period_closed' : 'mobile.docs.confirm_failed'), { tone: 'critical' });
       reconcile();
     } finally {
       end();

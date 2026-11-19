@@ -22,7 +22,7 @@ import { TaxRow, type TaxMode } from './_components/TaxRow';
 type Stage = 'idle' | 'uploading' | 'review';
 /** Where the expense stands while the form is open. */
 type Source = 'uploaded' | 'offline' | 'failed' | 'manual';
-type ErrorKind = null | 'read_failed' | 'upload_too_large' | 'save_too_large' | 'save_failed' | 'queue_failed'
+type ErrorKind = null | 'period_closed' | 'read_failed' | 'upload_too_large' | 'save_too_large' | 'save_failed' | 'queue_failed'
   | 'amount_invalid' | 'amount_ambiguous' | 'discard_failed' | 'review_amount' | 'receipt_deleted';
 
 interface Draft { amount: string; vendor: string; date: string; categoryId: string | null; categoryName: string | null; isPersonal: boolean }
@@ -32,6 +32,8 @@ const emptyDraft = (): Draft => ({ amount: '', vendor: '', date: todayIso(), cat
 const statusOf = (e: unknown) => (e && typeof e === 'object' ? (e as { status?: number }).status : undefined);
 const codeOf = (e: unknown) => (e && typeof e === 'object' ? (e as { code?: string }).code : undefined);
 /** A too-large photo: the client pre-flight (code) or the platform's plain-text 413 (status). Never branch on the message. */
+/** The ledger refused: the expense's date is in a closed period (422, same body as POST /expenses). */
+const isPeriodClosed = (e: unknown) => statusOf(e) === 422;
 const isTooLarge = (e: unknown) => codeOf(e) === 'file_too_large' || statusOf(e) === 413;
 const deviceOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
@@ -289,7 +291,7 @@ export default function MobileCapture() {
         reset(false);
         return;
       }
-      setErrorKind(e instanceof QueueError ? 'queue_failed' : isTooLarge(e) ? 'save_too_large' : 'save_failed');
+      setErrorKind(e instanceof QueueError ? 'queue_failed' : isTooLarge(e) ? 'save_too_large' : isPeriodClosed(e) ? 'period_closed' : 'save_failed');
     } finally {
       setSaving(false);
     }
@@ -321,6 +323,7 @@ export default function MobileCapture() {
       case 'upload_too_large': return [t('mobile.capture.too_large'), t('mobile.capture.read_failed')];
       case 'save_too_large': return [t('mobile.capture.too_large')];
       case 'save_failed': return [t('mobile.capture.save_failed')];
+      case 'period_closed': return [t('mobile.capture.period_closed')];
       case 'queue_failed': return [t('mobile.capture.queue_failed')];
       case 'amount_invalid': return [t('mobile.capture.amount_invalid')];
       case 'amount_ambiguous': return [t('mobile.capture.amount_ambiguous', { formatted: ambiguous })];

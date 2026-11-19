@@ -28,13 +28,13 @@ const ACCOUNTS: Row[] = [
   { id: 'acc-susp', tenantId: 't1', code: '6999', name: 'Uncategorized', accountType: 'expense', isActive: true },
 ];
 
-function seed(cfg: Row, expense: Row, vendors: Row[] = []) {
+function seed(cfg: Row, expense: Row, vendors: Row[] = [], periods: Row[] = []) {
   memDb.reset(
     {
       abAccount: ACCOUNTS,
       abTenantConfig: [{ id: 'cfg', userId: 't1', ...cfg }],
       abVendor: vendors,
-      abFiscalPeriod: [],
+      abFiscalPeriod: periods,
       abExpense: [{ id: 'e1', tenantId: 't1', amountCents: 11000, taxAmountCents: 0, date: new Date('2026-06-10'), description: 'OFFICEWORKS 123', status: 'pending_review', isPersonal: false, journalEntryId: null, deletedAt: null, taxCode: null, recoverableTaxCents: 0, source: 'cc_statement', ...expense }],
     },
     { unique: { abJournalEntry: [['tenantId', 'sourceType', 'sourceId']] } },
@@ -42,7 +42,7 @@ function seed(cfg: Row, expense: Row, vendors: Row[] = []) {
 }
 async function confirm(body: Row = {}) {
   const res = await CONFIRM(tenantReq('/api/v1/agentbook-expense/expenses/e1/confirm', 't1', { method: 'POST', body }), { params: Promise.resolve({ id: 'e1' }) });
-  return { status: res.status, body: await json<{ success: boolean; data: Row }>(res) };
+  return { status: res.status, body: await json<{ success: boolean; data: Row; error?: string; details?: Row }>(res) };
 }
 function lines(): Record<string, [number, number]> {
   const exp = memDb.table('abExpense').rows.find((e) => e.id === 'e1')!;
@@ -87,5 +87,28 @@ describe('confirm an imported draft', () => {
     seed({ jurisdiction: 'au', region: 'NSW', gstRegistered: true }, { categoryId: null });
     await confirm();
     expect(row()).toMatchObject({ status: 'confirmed', journalEntryId: null });
+  });
+
+  it('a closed period: 422 period gate exactly as POST /expenses, nothing booked, still pending', async () => {
+    seed({ jurisdiction: 'au', region: 'NSW', gstRegistered: true }, { categoryId: 'acc-office' }, [], [{ id: 'p', tenantId: 't1', year: 2026, month: 6, status: 'closed' }]);
+    const r = await confirm();
+    expect(r.status).toBe(422);
+    expect(r.body).toEqual({ success: false, error: 'Period gate violated', details: { constraint: 'period_gate', year: 2026, month: 6, status: 'closed' } });
+    expect(memDb.table('abJournalEntry').rows).toEqual([]);
+    expect(row()).toMatchObject({ status: 'pending_review', journalEntryId: null });
+  });
+
+  it('stale typed row after registration was revoked: recomputed to no credit, 2-line gross', async () => {
+    seed({ jurisdiction: 'au', region: 'NSW', gstRegistered: false }, { categoryId: 'acc-office', taxCode: 'GST', recoverableTaxCents: 1000, taxAmountCents: 1000 });
+    await confirm();
+    expect(row()).toMatchObject({ recoverableTaxCents: 0 });
+    expect(lines()).toEqual({ 'acc-office': [11000, 0], 'acc-cash': [0, 11000] });
+  });
+
+  it('stale typed row with an inapplicable code and a new amount: no phantom DR 2100', async () => {
+    seed({ jurisdiction: 'ca', region: 'ON', gstRegistered: true }, { categoryId: 'acc-office', taxCode: 'GST_QST', recoverableTaxCents: 1498, taxAmountCents: 1498 });
+    await confirm({ amountCents: 5000 });
+    expect(row()).toMatchObject({ amountCents: 5000, taxCode: null, recoverableTaxCents: 0 });
+    expect(lines()).toEqual({ 'acc-office': [5000, 0], 'acc-cash': [0, 5000] });
   });
 });

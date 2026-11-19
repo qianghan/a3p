@@ -3,7 +3,7 @@
  * Every financial action produces a balanced journal entry.
  * The constraint engine is code, not LLM prompts.
  */
-import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase';
+import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase.js';
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';

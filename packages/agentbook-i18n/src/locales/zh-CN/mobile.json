@@ -289,7 +289,8 @@
     "not_found": "该单据已不存在。",
     "load_failed": "无法加载该单据。",
     "archived_banner": "已归档。它不会出现在列表中，但金额仍然计入。",
-    "needs_review_banner": "需要您审核"
+    "needs_review_banner": "需要您审核",
+    "confirm_period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。"
   },
   "capture": {
     "title": "记录支出",
@@ -352,7 +353,8 @@
     "tax_code_capital": "资本性采购",
     "tax_code_zero_rated": "零税率",
     "tax_code_exempt": "免税",
-    "tax_code_out_of_scope": "不在征税范围"
+    "tax_code_out_of_scope": "不在征税范围",
+    "period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。"
   },
   "chat": {
     "title": "咨询您的顾问",

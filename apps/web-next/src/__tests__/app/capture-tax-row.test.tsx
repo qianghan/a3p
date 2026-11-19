@@ -155,4 +155,22 @@ describe('capture tax row — uploaded receipt (T6a review minor 2)', () => {
     await waitFor(() => expect(api.patchDoc).toHaveBeenCalled());
     expect(api.patchDoc.mock.calls[0][1]).toMatchObject({ taxCode: 'GST' });
   });
+
+  it('confirm refused by a closed period shows the period message, not a generic failure', async () => {
+    serve(AU);
+    api.uploadReceipt.mockResolvedValue({
+      doc: { id: 'd1', date: '2026-10-01', amountCents: 11000, vendorName: 'Officeworks', description: null, categoryId: 'c1', categoryName: 'Office', categorySource: null,
+        confidence: null, status: 'pending_review', isPersonal: false, receiptUrl: null, receiptStatus: 'attached', archivedAt: null, suggestion: null },
+      duplicate: false, ocr: { amountCents: 11000, vendor: 'Officeworks', date: '2026-10-01' },
+    });
+    api.patchDoc.mockImplementation(async (_id: string, p: object) => ({ id: 'd1', amountCents: 11000, status: 'pending_review', isPersonal: false, categoryId: 'c1', ...p }));
+    extra.confirmDoc.mockRejectedValue(Object.assign(new Error('Period gate violated'), { status: 422 }));
+    render(<ToastHost><MobileCapture /></ToastHost>);
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'r.jpg', { type: 'image/jpeg' })], configurable: true });
+    await act(async () => { fireEvent.change(input); });
+    await screen.findByTestId('capture-tax-code-GST');
+    fireEvent.click(screen.getByRole('button', { name: 'Save', exact: true }));
+    expect(await screen.findByTestId('capture-error')).toHaveTextContent('closed period');
+  });
 });

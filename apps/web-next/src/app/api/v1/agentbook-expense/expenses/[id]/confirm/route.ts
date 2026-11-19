@@ -13,6 +13,7 @@ import { publicErrorMessage } from '@/lib/api-error';
 import { bookExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 import { resolveExpenseTax, isMealsAccount } from '@/lib/expense-tax';
 import { TaxCodeError } from '@/lib/tax-codes';
+import { assertPeriodOpen, LedgerPeriodClosedError } from '@/lib/ledger-writer';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,6 +73,9 @@ export async function POST(
           ? db.abVendor.findFirst({ where: { id: expense.vendorId, tenantId }, select: { defaultTaxCode: true } })
           : null,
       ]);
+      // Nothing resolves: the row must not carry a split from an old code or
+      // amount, or the booking below would post a phantom DR 2100.
+      const untype = () => { updateData.taxCode = null; updateData.recoverableTaxCents = 0; };
       const stored = (expense as { taxCode?: string | null }).taxCode ?? undefined;
       try {
         const tax = resolveExpenseTax({
@@ -86,10 +90,12 @@ export async function POST(
           updateData.taxCode = tax.taxCode;
           updateData.taxAmountCents = tax.taxAmountCents;
           updateData.recoverableTaxCents = tax.recoverableTaxCents;
+        } else {
+          untype();
         }
       } catch (err) {
         if (!(err instanceof TaxCodeError)) throw err;
-        // A stale stored code that no longer applies: book gross, untyped.
+        untype(); // a stale stored code that no longer applies
       }
     }
 
@@ -98,12 +104,28 @@ export async function POST(
     const book = !expense.journalEntryId && !!finalCategoryId && !expense.isPersonal;
     if (book) await ensureChartOfAccounts(tenantId);
 
-    const updated = await db.$transaction(async (tx) => {
-      await tx.abExpense.update({ where: { id }, data: updateData });
-      // Same tax-aware lines as the create route: DR category (gross − recoverable) | DR 2100 | CR cash.
-      if (book) await bookExpenseJournalEntry(tenantId, id, tx);
-      return tx.abExpense.findFirst({ where: { id, tenantId } });
-    });
+    let updated;
+    try {
+      // Checked before any write as well as inside the booking, so a closed
+      // period refuses even where the client cannot roll back.
+      if (book) await assertPeriodOpen(db, tenantId, expense.date);
+      updated = await db.$transaction(async (tx) => {
+        await tx.abExpense.update({ where: { id }, data: updateData });
+        // Same tax-aware lines as the create route: DR category (gross − recoverable) | DR 2100 | CR cash.
+        if (book) await bookExpenseJournalEntry(tenantId, id, tx);
+        return tx.abExpense.findFirst({ where: { id, tenantId } });
+      });
+    } catch (err) {
+      // Same status / body as POST /expenses: the transaction rolled back, so
+      // the draft stays pending_review and nothing is booked.
+      if (err instanceof LedgerPeriodClosedError) {
+        return NextResponse.json(
+          { success: false, error: 'Period gate violated', details: { constraint: 'period_gate', year: err.year, month: err.month, status: 'closed' } },
+          { status: 422 },
+        );
+      }
+      throw err;
+    }
 
     await db.abEvent.create({
       data: {

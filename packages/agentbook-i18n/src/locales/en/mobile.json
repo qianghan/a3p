@@ -289,7 +289,8 @@
     "not_found": "This document no longer exists.",
     "load_failed": "Couldn’t load this document.",
     "archived_banner": "Archived. It is hidden from your lists but its numbers still count.",
-    "needs_review_banner": "Needs your review"
+    "needs_review_banner": "Needs your review",
+    "confirm_period_closed": "This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date."
   },
   "capture": {
     "title": "Capture expense",
@@ -352,7 +353,8 @@
     "tax_code_capital": "Capital purchase",
     "tax_code_zero_rated": "Zero-rated",
     "tax_code_exempt": "Exempt",
-    "tax_code_out_of_scope": "Out of scope"
+    "tax_code_out_of_scope": "Out of scope",
+    "period_closed": "This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date."
   },
   "chat": {
     "title": "Ask your advisor",
