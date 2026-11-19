@@ -30,7 +30,7 @@ function splitGstQst(p: GstHstPurchaseLine, rec: number, input: GstHstReturnInpu
   try {
     const r = computeCaLineTax({
       jurisdiction: 'ca', region: input.region || 'QC', taxCode: 'GST_QST',
-      amountCents: p.grossCents ?? 0, inclusive: true,
+      amountCents: p.grossCents ?? 0, inclusive: true, isMeal: p.isMeal === true,
       registration: { gstRegistered: true, qstRegistered: false },
     });
     gstShare = r.components.find((c) => c.type === 'GST')?.recoverableCents ?? rec;
@@ -57,6 +57,8 @@ export interface GstHstPurchaseLine {
   recoverableTaxCents?: number | null;
   /** Document gross (expense.amountCents) — needed to split GST_QST credits. */
   grossCents?: number | null;
+  /** Meals & entertainment (same isMealsAccount decision as posting) → 50% ITC fraction. */
+  isMeal?: boolean;
 }
 
 export interface GstHstReturnInput {

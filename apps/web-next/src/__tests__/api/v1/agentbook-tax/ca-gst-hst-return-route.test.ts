@@ -7,6 +7,7 @@ const resolveTenant = vi.fn();
 const tenantConfigFindUnique = vi.fn();
 const invoiceFindMany = vi.fn();
 const expenseFindMany = vi.fn();
+const accountFindMany = vi.fn();
 
 vi.mock('@/lib/agentbook-tenant', () => ({
   safeResolveAgentbookTenant: (...a: unknown[]) => resolveTenant(...a),
@@ -16,6 +17,7 @@ vi.mock('@naap/database', () => ({
     abTenantConfig: { findUnique: (...a: unknown[]) => tenantConfigFindUnique(...a) },
     abInvoice: { findMany: (...a: unknown[]) => invoiceFindMany(...a) },
     abExpense: { findMany: (...a: unknown[]) => expenseFindMany(...a) },
+    abAccount: { findMany: (...a: unknown[]) => accountFindMany(...a) },
   },
 }));
 
@@ -28,6 +30,10 @@ function req(qs = '?periodStart=2026-01-01&periodEnd=2026-03-31'): NextRequest {
 beforeEach(() => {
   resolveTenant.mockReset(); tenantConfigFindUnique.mockReset(); invoiceFindMany.mockReset(); expenseFindMany.mockReset();
   resolveTenant.mockResolvedValue({ tenantId: 't1' });
+  accountFindMany.mockReset();
+  accountFindMany.mockImplementation(async (q: { where: { id: { in: string[] } } }) =>
+    [{ id: 'acct-meals', name: 'Meals & Entertainment', taxCategory: null }, { id: 'acct-office', name: 'Office Supplies', taxCategory: null }]
+      .filter((a) => q.where.id.in.includes(a.id)));
 });
 
 describe('GET /agentbook-tax/ca/gst-hst-return', () => {
@@ -132,5 +138,27 @@ describe('GST_QST split derives from the stored recoverable, not today\'s flags 
       const body = await (await GET(req())).json();
       expect(body.data.line108ItcCents + body.data.qstItrCents).toBe(rec);
     }
+  });
+});
+
+describe('GST_QST meal rows use the posting isMealsAccount decision (2b.7 round 2)', () => {
+  it('50% meal: stored 2500 GST + 4987 QST = 7487 splits 2500 / 4987; non-meal row unchanged', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC', gstRegistered: true, qstRegistered: true });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue([
+      // meal: net 100000, GST 5000 x 50% = 2500, QST 9975 x 50% = 4987 (half-up of 4987.5 → engine's figure); stored 7487
+      { amountCents: 114_975, taxAmountCents: 14_975, taxCode: 'GST_QST', recoverableTaxCents: 7_487, categoryId: 'acct-meals' },
+    ]);
+    let body = await (await GET(req())).json();
+    expect(body.data.line108ItcCents).toBe(2_500);
+    expect(body.data.qstItrCents).toBe(4_987);
+    expect(body.data.line108ItcCents + body.data.qstItrCents).toBe(7_487);
+
+    expenseFindMany.mockResolvedValue([
+      { amountCents: 114_975, taxAmountCents: 14_975, taxCode: 'GST_QST', recoverableTaxCents: 14_975, categoryId: 'acct-office' },
+    ]);
+    body = await (await GET(req())).json();
+    expect(body.data.line108ItcCents).toBe(5_000);
+    expect(body.data.qstItrCents).toBe(9_975);
   });
 });
