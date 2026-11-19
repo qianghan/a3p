@@ -100,9 +100,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: 'invalid dueDate' }, { status: 400 });
     }
 
+    // O6: bills are booked in the tenant currency only (both posting modes).
+    const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    const tenantCurrency = String(cfg?.currency ?? 'USD').toUpperCase();
+    if (body.currency && body.currency.toUpperCase() !== tenantCurrency) {
+      return NextResponse.json(
+        { success: false, code: 'bill_currency_unsupported', error: `Bills must be in ${tenantCurrency}` },
+        { status: 422 },
+      );
+    }
+
     // PR 3bc: accrual tenants post AP at entry — behind `purchases_at_entry` (off).
     if (await isPurchasesAtEntryEnabled()) {
-      const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
       if (cfg && cfg.accountingBasis !== 'cash') {
         const billDate = body.billDate ? new Date(body.billDate) : new Date();
         if (isNaN(billDate.getTime())) {

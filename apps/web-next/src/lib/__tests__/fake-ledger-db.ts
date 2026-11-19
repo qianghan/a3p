@@ -45,6 +45,12 @@ export function createFakeLedgerDb() {
     billLines: [] as Row[],
     billPayments: [] as Row[],
     tenantConfigs: [] as Row[],
+    /**
+     * Error codes to raise from the next transactions, one per transaction,
+     * AFTER the callback ran and rolled back — e.g. 'P2034', how Postgres
+     * aborts a Serializable transaction on a conflict.
+     */
+    injectTxErrors: [] as string[],
     seq: 0,
   };
   const nextId = (p: string) => `${p}-${++state.seq}`;
@@ -194,7 +200,12 @@ export function createFakeLedgerDb() {
       txLock = new Promise<void>((r) => (release = r));
       await prev;
       try {
-        return await runTx(fn);
+        return await runTx(async (tx) => {
+          const r = await fn(tx);
+          const code = state.injectTxErrors.shift();
+          if (code) throw Object.assign(new Error(`injected ${code}`), { code });
+          return r;
+        });
       } finally {
         release();
       }

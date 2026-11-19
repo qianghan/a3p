@@ -141,6 +141,18 @@ describe('POST bills — flag purchases_at_entry', () => {
     expect(memDb.table('abBill').rows[0].postingMode ?? 'at_payment').toBe('at_payment');
     expect(entries()).toHaveLength(0);
   });
+  it('off: a non-tenant currency is refused on the LEGACY create too (O6)', async () => {
+    seed([]);
+    const res = await CREATE(tenantReq('/api/v1/agentbook-expense/bills', 't1', { method: 'POST', body: { ...body, currency: 'USD' } }));
+    expect(res.status).toBe(422);
+    expect((await json<{ code: string }>(res)).code).toBe('bill_currency_unsupported');
+    expect(memDb.table('abBill').rows).toHaveLength(0);
+  });
+  it('off: the tenant currency is accepted', async () => {
+    seed([]);
+    const res = await CREATE(tenantReq('/api/v1/agentbook-expense/bills', 't1', { method: 'POST', body: { ...body, currency: 'aud' } }));
+    expect(res.status).toBe(201);
+  });
   it('on (accrual): posts DR 5300 / DR 2100 / CR 2000 at billDate', async () => {
     flagRow = { enabled: true };
     seed([]);

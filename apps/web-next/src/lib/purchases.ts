@@ -104,6 +104,28 @@ function periodError(err: unknown): never {
 
 class StaleWrite {}
 
+export const SERIALIZATION_ATTEMPTS = 3;
+const isSerializationFailure = (e: unknown) => (e as { code?: string })?.code === 'P2034';
+
+/**
+ * A Serializable transaction, retried (bounded, jittered) when Postgres
+ * aborts it for a serialization conflict (Prisma P2034). Exhaustion is a
+ * retryable 409, never a 500.
+ */
+async function serializableTx<T>(db: PurchasesDb, fn: (tx: PurchasesDb) => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await db.$transaction(fn, { isolationLevel: 'Serializable' });
+    } catch (err) {
+      if (!isSerializationFailure(err)) throw err;
+      if (attempt >= SERIALIZATION_ATTEMPTS) {
+        throw new PurchaseError(409, 'concurrent_update', 'The bill changed while saving; please retry');
+      }
+      await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 20 * attempt)));
+    }
+  }
+}
+
 /* ----------------------------------------------------------------- accounts */
 
 async function accountByCode(db: PurchasesDb, tenantId: string, code: string): Promise<{ id: string }> {
@@ -218,9 +240,20 @@ export async function postBill(db: PurchasesDb, tenantId: string, input: BillInp
   if (!(input.dueDate instanceof Date) || isNaN(input.dueDate.getTime())) throw new PurchaseError(400, 'invalid_due_date');
   const key = input.idempotencyKey?.trim() || null;
   const findByKey = (c: PurchasesDb) => c.abBill.findFirst({ where: { tenantId, idempotencyKey: key, ...liveBillWhere() } });
+  const grossOf = (ls: BillLineInput[]) => (Array.isArray(ls) ? ls.reduce((s, l) => s + (l?.amountCents ?? 0), 0) : NaN);
+  /** Same key must mean the same document: vendor, gross total, bill + due dates. */
+  const replay = (hit: Row) => {
+    const same =
+      hit.vendorName === input.vendorName &&
+      hit.amountCents === grossOf(input.lines) &&
+      (hit.billDate as Date | null)?.getTime() === input.billDate.getTime() &&
+      (hit.dueDate as Date).getTime() === input.dueDate.getTime();
+    if (!same) throw new PurchaseError(409, 'idempotency_key_conflict', 'This idempotency key was used for a different bill');
+    return { bill: hit, replayed: true };
+  };
   if (key) {
     const hit = await findByKey(db);
-    if (hit) return { bill: hit, replayed: true };
+    if (hit) return replay(hit);
   }
 
   const cfg = await tenantConfig(db, tenantId);
@@ -244,10 +277,10 @@ export async function postBill(db: PurchasesDb, tenantId: string, input: BillInp
 
   const id = key ? idFromKey('bill', tenantId, key) : randomUUID();
   try {
-    const bill = await db.$transaction(async (tx: PurchasesDb) => {
+    const bill = await serializableTx(db, async (tx: PurchasesDb) => {
       if (key) {
         const hit = await findByKey(tx);
-        if (hit) return { ...hit, __replayed: true };
+        if (hit) return { ...replay(hit).bill, __replayed: true };
       }
       await tx.abBill.create({
         data: {
@@ -268,14 +301,14 @@ export async function postBill(db: PurchasesDb, tenantId: string, input: BillInp
         }, ledger);
       }
       return tx.abBill.update({ where: { id }, data: { journalEntryId } });
-    }, { isolationLevel: 'Serializable' });
+    });
     const replayed = Boolean(bill.__replayed);
     delete bill.__replayed;
     return { bill, replayed };
   } catch (err) {
     if (key && (isP2002(err) || err instanceof LedgerKeyConflict)) {
       const hit = await findByKey(db);
-      if (hit) return { bill: hit, replayed: true };
+      if (hit) return replay(hit);
     }
     return periodError(err);
   }
@@ -299,7 +332,15 @@ export async function payBill(db: PurchasesDb, tenantId: string, billId: string,
   return withRetry(async () => {
     if (key) {
       const hit = await findByKey(db);
-      if (hit) return { bill: await loadBill(db, tenantId, billId), payment: hit, replayed: true };
+      if (hit) {
+        // A voided payment is NOT replayed as active: the offline queue would
+        // believe the bill is paid. The caller must pay again with a new key.
+        if (hit.voidedAt) throw new PurchaseError(409, 'payment_voided', 'This payment was voided; pay again with a new key');
+        const sameAmount = input.amountCents === undefined || input.amountCents === hit.amountCents;
+        const sameDate = !input.date || input.date.getTime() === (hit.date as Date).getTime();
+        if (!sameAmount || !sameDate) throw new PurchaseError(409, 'idempotency_key_conflict', 'This idempotency key was used for a different payment');
+        return { bill: await loadBill(db, tenantId, billId), payment: hit, replayed: true };
+      }
     }
     const bill = await loadBill(db, tenantId, billId);
     if (bill.status === 'paid') throw new PurchaseError(409, 'bill_already_paid');
@@ -383,7 +424,7 @@ export async function voidPayment(db: PurchasesDb, tenantId: string, paymentId: 
           data: { paidCents: next, status, paidDate: null, ...(bill.postingMode !== 'at_entry' && next === 0 ? { journalEntryId: null } : {}) },
         });
         if (g.count === 0) return new StaleWrite();
-        const p = await tx.abBillPayment.updateMany({ where: { id: paymentId, voidedAt: null }, data: { voidedAt: new Date() } });
+        const p = await tx.abBillPayment.updateMany({ where: { id: paymentId, voidedAt: null }, data: { voidedAt: date } });
         if (p.count === 0) throw new PurchaseError(409, 'payment_already_voided');
         await appendBalancedEntry(tx, tenantId, {
           date, memo: `Void bill payment: ${bill.vendorName}`, sourceType: 'bill_payment_void', sourceId: paymentId,
@@ -450,6 +491,9 @@ export async function amendBill(db: PurchasesDb, tenantId: string, billId: strin
         }));
     const ledger = await entryLines(db, tenantId, lines, vendorName);
     const reversal = bill.journalEntryId ? await mirrorOf(db, bill.journalEntryId) : null;
+    // Both periods: the reversal undoes an entry that sits at the ORIGINAL date.
+    const originalDate: Date = bill.billDate ?? bill.createdAt;
+    await assertPeriodOpen(db, tenantId, originalDate).catch(periodError);
     await assertPeriodOpen(db, tenantId, billDate).catch(periodError);
     const total = lines.reduce((s, l) => s + l.amountCents, 0);
     const tax = lines.reduce((s, l) => s + l.taxCents, 0);

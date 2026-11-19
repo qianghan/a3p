@@ -306,3 +306,73 @@ describe('legacy at_payment', () => {
     expect(f.state.bills[0].status).toBe('open');
   });
 });
+
+describe('review fixes', () => {
+  it('I1: a P2034 serialization abort retries; same-key concurrent posts → one bill, both callers get it', async () => {
+    f.state.injectTxErrors.push('P2034');
+    const [a, b] = await Promise.all([
+      postBill(f.db as never, 't1', billInput({ idempotencyKey: 'sk' })),
+      postBill(f.db as never, 't1', billInput({ idempotencyKey: 'sk' })),
+    ]);
+    expect(a.bill.id).toBe(b.bill.id);
+    expect(f.state.bills).toHaveLength(1);
+    expect(f.state.entries).toHaveLength(1);
+  });
+
+  it('I1: different keys under a P2034 abort both succeed', async () => {
+    f.state.injectTxErrors.push('P2034');
+    const [a, b] = await Promise.all([
+      postBill(f.db as never, 't1', billInput({ idempotencyKey: 'x1' })),
+      postBill(f.db as never, 't1', billInput({ idempotencyKey: 'x2' })),
+    ]);
+    expect(a.bill.id).not.toBe(b.bill.id);
+    expect(f.state.bills).toHaveLength(2);
+    expect(apBalance()).toBe(22000);
+  });
+
+  it('I1: exhausted P2034 retries → 409 concurrent_update (not a 500), nothing written', async () => {
+    f.state.injectTxErrors.push('P2034', 'P2034', 'P2034');
+    await expect(postBill(f.db as never, 't1', billInput())).rejects.toMatchObject({ status: 409, code: 'concurrent_update' });
+    expect(f.state.bills).toHaveLength(0);
+    expect(f.state.entries).toHaveLength(0);
+  });
+
+  it('I3: amending a bill whose entry sits in a closed period is refused', async () => {
+    const { bill } = await postBill(f.db as never, 't1', billInput());
+    f.state.periods.push({ tenantId: 't1', year: 2026, month: 11, status: 'closed' });
+    await expect(amendBill(f.db as never, 't1', bill.id, { billDate: D('2026-12-03') })).rejects.toMatchObject({ status: 422, code: 'period_closed' });
+    expect(f.state.entries).toHaveLength(1);
+    expect(f.state.bills[0].revision).toBe(0);
+  });
+
+  it('(a) same bill key + different payload → 409 idempotency_key_conflict', async () => {
+    await postBill(f.db as never, 't1', billInput({ idempotencyKey: 'pk' }));
+    await expect(postBill(f.db as never, 't1', billInput({ idempotencyKey: 'pk', lines: [{ description: 'Paper', amountCents: 999, categoryId: 'acct-meals' }] })))
+      .rejects.toMatchObject({ status: 409, code: 'idempotency_key_conflict' });
+    expect(f.state.bills).toHaveLength(1);
+  });
+
+  it('(a) same payment key + different amount → 409 idempotency_key_conflict', async () => {
+    const { bill } = await postBill(f.db as never, 't1', billInput());
+    await payBill(f.db as never, 't1', bill.id, { amountCents: 1000, idempotencyKey: 'pp' });
+    await expect(payBill(f.db as never, 't1', bill.id, { amountCents: 2000, idempotencyKey: 'pp' })).rejects.toMatchObject({ status: 409, code: 'idempotency_key_conflict' });
+    expect(f.state.bills[0].paidCents).toBe(1000);
+  });
+
+  it('(b) replaying a key whose payment was voided → 409 payment_voided, nothing re-applied', async () => {
+    const { bill } = await postBill(f.db as never, 't1', billInput());
+    const { payment } = await payBill(f.db as never, 't1', bill.id, { amountCents: 1000, idempotencyKey: 'pv' });
+    await voidPayment(f.db as never, 't1', payment.id, {});
+    await expect(payBill(f.db as never, 't1', bill.id, { amountCents: 1000, idempotencyKey: 'pv' })).rejects.toMatchObject({ status: 409, code: 'payment_voided' });
+    expect(f.state.bills[0].paidCents).toBe(0);
+  });
+
+  it('(c) voidPayment: reversing entry date and voidedAt are the same effective date', async () => {
+    const { bill } = await postBill(f.db as never, 't1', billInput());
+    const { payment } = await payBill(f.db as never, 't1', bill.id, {});
+    const when = D('2026-11-25');
+    const { payment: v } = await voidPayment(f.db as never, 't1', payment.id, { date: when });
+    expect(v.voidedAt.getTime()).toBe(when.getTime());
+    expect(entry('bill_payment_void', payment.id)!.date.getTime()).toBe(when.getTime());
+  });
+});
