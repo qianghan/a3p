@@ -111,4 +111,22 @@ describe('confirm an imported draft', () => {
     expect(row()).toMatchObject({ amountCents: 5000, taxCode: null, recoverableTaxCents: 0 });
     expect(lines()).toEqual({ 'acc-office': [5000, 0], 'acc-cash': [0, 5000] });
   });
+
+  it('I-1: an already-booked pending row keeps its tax fields and journal untouched', async () => {
+    seed({ jurisdiction: 'au', region: 'NSW', gstRegistered: true }, { categoryId: 'acc-office', journalEntryId: 'je-old', taxCode: null, recoverableTaxCents: 0, taxAmountCents: 0 });
+    const r = await confirm();
+    expect(r.status).toBe(200);
+    expect(row()).toMatchObject({ status: 'confirmed', journalEntryId: 'je-old', taxCode: null, taxAmountCents: 0, recoverableTaxCents: 0 });
+    expect(memDb.table('abJournalEntry').rows).toEqual([]);
+    expect(memDb.table('abJournalLine').rows).toEqual([]);
+  });
+
+  it("M-2: another tenant's category id -> 400 invalid_category, nothing written", async () => {
+    memDb.table('abAccount').rows.push({ id: 'acc-other', tenantId: 't2', code: '5200', name: 'Office', accountType: 'expense', isActive: true });
+    const r = await confirm({ categoryId: 'acc-other' });
+    expect(r.status).toBe(400);
+    expect((r.body as unknown as Row).code).toBe('invalid_category');
+    expect(row()).toMatchObject({ status: 'pending_review', categoryId: 'acc-office', journalEntryId: null });
+    expect(memDb.table('abJournalEntry').rows).toEqual([]);
+  });
 });

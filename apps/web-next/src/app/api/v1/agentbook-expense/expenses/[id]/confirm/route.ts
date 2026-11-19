@@ -48,6 +48,20 @@ export async function POST(
       return NextResponse.json({ success: true, data: expense, message: 'Already confirmed' });
     }
 
+    // Same ownership check as POST /expenses: a foreign id must never be stored or booked.
+    if (body.categoryId) {
+      const owned = await db.abAccount.findFirst({
+        where: { id: body.categoryId, tenantId, accountType: 'expense', isActive: true },
+        select: { id: true },
+      });
+      if (!owned) {
+        return NextResponse.json(
+          { success: false, code: 'invalid_category', error: 'categoryId is not one of your expense categories' },
+          { status: 400 },
+        );
+      }
+    }
+
     const finalCategoryId = body.categoryId || expense.categoryId;
     const finalAmount = body.amountCents || expense.amountCents;
 
@@ -60,7 +74,10 @@ export async function POST(
     // unbooked; confirm is where they reach the ledger, so it resolves tax the
     // way every other entry path does: the row's code, else the vendor's
     // default, else the registrant default.
-    if (!expense.isPersonal) {
+    // An already-booked row keeps its tax fields: its journal was posted with
+    // them, and rewriting only the row would make the two disagree.
+    const book = !expense.journalEntryId && !!finalCategoryId && !expense.isPersonal;
+    if (!expense.isPersonal && !expense.journalEntryId) {
       const [cfg, catAcct, vendor] = await Promise.all([
         db.abTenantConfig.findUnique({
           where: { userId: tenantId },
@@ -101,7 +118,6 @@ export async function POST(
 
     // Seed on demand — the chart is otherwise only created by onboarding, so a
     // tenant who skipped it would silently never book this expense.
-    const book = !expense.journalEntryId && !!finalCategoryId && !expense.isPersonal;
     if (book) await ensureChartOfAccounts(tenantId);
 
     let updated;
