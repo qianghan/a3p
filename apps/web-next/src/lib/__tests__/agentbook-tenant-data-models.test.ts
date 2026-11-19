@@ -107,6 +107,12 @@ describe('TENANT_DELETE_ORDER — full-fixture deletion', () => {
       await db.abTenantConfig.create({ data: { userId: tenantId } });
       await db.abPersonalProfile.create({ data: { userId: tenantId } });
 
+      const bill = await db.abBill.create({
+        data: { tenantId, vendorName: 'Seed Vendor', amountCents: 100, dueDate: new Date() },
+      });
+      await db.abBillLine.create({ data: { tenantId, billId: bill.id, description: 'seed', amountCents: 100 } });
+      await db.abBillPayment.create({ data: { tenantId, billId: bill.id, date: new Date(), amountCents: 100 } });
+
       await db.abEvent.create({
         data: { tenantId, eventType: 'account.deletion_requested', actor: 'user', action: { requestedAt: new Date().toISOString() } },
       });
@@ -149,6 +155,9 @@ describe('TENANT_DELETE_ORDER — full-fixture deletion', () => {
       creditNotesA,
       expenseSplitsA,
       payStubsA,
+      billLinesA,
+      billPaymentsA,
+      billsA,
       startupApplicationsA,
       startupChildrenA,
       tenantConfigsA,
@@ -160,6 +169,9 @@ describe('TENANT_DELETE_ORDER — full-fixture deletion', () => {
       db.abCreditNote.count({ where: { tenantId: tenantA } }),
       db.abExpenseSplit.count({ where: { tenantId: tenantA } }),
       db.abPayStub.count({ where: { tenantId: tenantA } }),
+      db.abBillLine.count({ where: { tenantId: tenantA } }),
+      db.abBillPayment.count({ where: { tenantId: tenantA } }),
+      db.abBill.count({ where: { tenantId: tenantA } }),
       db.startupBenefitApplication.count({ where: { tenantId: tenantA } }),
       countStartupChildRows(tenantA),
       db.abTenantConfig.count({ where: { userId: tenantA } }),
@@ -171,6 +183,7 @@ describe('TENANT_DELETE_ORDER — full-fixture deletion', () => {
     expect(creditNotesA).toBe(0);
     expect(expenseSplitsA).toBe(0);
     expect(payStubsA).toBe(0);
+    expect([billLinesA, billPaymentsA, billsA]).toEqual([0, 0, 0]);
     expect(startupApplicationsA).toBe(0);
     expect(startupChildrenA).toEqual({ documents: 0, decisionPoints: 0, auditReviews: 0 });
     expect(tenantConfigsA).toBe(0);
