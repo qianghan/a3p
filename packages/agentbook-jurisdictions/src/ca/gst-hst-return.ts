@@ -20,24 +20,25 @@ import { computeCaLineTax } from './tax-codes.js';
 
 /**
  * Only the combined recoverable figure is stored, so a GST_QST row's credit is
- * apportioned GST vs QST by re-running the engine on its gross (the ratio is
- * independent of the meals fraction). Rounding remainder goes to QST.
+ * split FROM THE STORED VALUE (never today's registration flags): the GST share
+ * is the GST-only recoverable for the row's gross; line 108 gets
+ * min(stored, gstShare) and the QST ITR the remainder. A row booked GST-only
+ * therefore lands wholly on line 108, and gst + qst === stored exactly.
  */
 function splitGstQst(p: GstHstPurchaseLine, rec: number, input: GstHstReturnInput): { gst: number; qst: number } {
+  let gstShare = rec;
   try {
     const r = computeCaLineTax({
       jurisdiction: 'ca', region: input.region || 'QC', taxCode: 'GST_QST',
       amountCents: p.grossCents ?? 0, inclusive: true,
-      registration: { gstRegistered: input.gstRegistered ?? null, qstRegistered: input.qstRegistered ?? null },
+      registration: { gstRegistered: true, qstRegistered: false },
     });
-    const g = r.components.find((c) => c.type === 'GST')?.recoverableCents ?? 0;
-    const total = r.components.reduce((s, c) => s + c.recoverableCents, 0);
-    if (total <= 0) return { gst: rec, qst: 0 };
-    const gst = Math.round((rec * g) / total);
-    return { gst, qst: rec - gst };
+    gstShare = r.components.find((c) => c.type === 'GST')?.recoverableCents ?? rec;
   } catch {
-    return { gst: rec, qst: 0 };
+    gstShare = rec;
   }
+  const gst = Math.min(rec, gstShare);
+  return { gst, qst: Math.max(0, rec - gstShare) };
 }
 
 export interface GstHstSalesLine {
@@ -102,7 +103,6 @@ export function computeGstHstReturn(input: GstHstReturnInput): GstHstReturn {
     }
   }
   if (input.gstRegistered === false) { line108 = 0; qstItr = 0; }
-  if (input.qstRegistered !== true) qstItr = 0;
   const line109 = line105 - line108;
   const outcome: GstHstReturn['outcome'] = line109 > 0 ? 'balance_owing' : line109 < 0 ? 'refund' : 'nil';
   return {

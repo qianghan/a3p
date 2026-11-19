@@ -100,3 +100,37 @@ describe('GET /agentbook-tax/ca/gst-hst-return — typed expenses (PR 2b.7 golde
     expect(body.data.qstItrCents).toBe(0);
   });
 });
+
+describe('GST_QST split derives from the stored recoverable, not today\'s flags (2b.7 I-1)', () => {
+  it('row booked GST-only, tenant NOW qstRegistered → all 5000 on line 108, 0 QST', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC', gstRegistered: true, qstRegistered: true });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue([
+      { amountCents: 114_975, taxAmountCents: 14_975, taxCode: 'GST_QST', recoverableTaxCents: 5_000 },
+    ]);
+    const body = await (await GET(req())).json();
+    expect(body.data.line108ItcCents).toBe(5_000);
+    expect(body.data.qstItrCents).toBe(0);
+  });
+
+  it('row booked with QST, tenant NOW not qstRegistered → still 5000 / 9975 (booking state wins)', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC', gstRegistered: true, qstRegistered: false });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue([
+      { amountCents: 114_975, taxAmountCents: 14_975, taxCode: 'GST_QST', recoverableTaxCents: 14_975 },
+    ]);
+    const body = await (await GET(req())).json();
+    expect(body.data.line108ItcCents).toBe(5_000);
+    expect(body.data.qstItrCents).toBe(9_975);
+  });
+
+  it('sum invariant: line108 + QST ITR === stored recoverable for each GST_QST row', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC', gstRegistered: true, qstRegistered: true });
+    invoiceFindMany.mockResolvedValue([]);
+    for (const [gross, rec] of [[114_975, 14_975], [11_497, 1_497], [999, 129], [114_975, 5_000], [2_300, 0]]) {
+      expenseFindMany.mockResolvedValue([{ amountCents: gross, taxAmountCents: rec, taxCode: 'GST_QST', recoverableTaxCents: rec }]);
+      const body = await (await GET(req())).json();
+      expect(body.data.line108ItcCents + body.data.qstItrCents).toBe(rec);
+    }
+  });
+});
