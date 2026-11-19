@@ -7,9 +7,17 @@
 | **Maya** | `maya@agentbook.test` | `agentbook123` | Canadian IT consultant, Toronto. 3 clients, 99 expenses, 29 invoices, 2 projects. CAD currency. |
 | **Alex** | `alex@agentbook.test` | `agentbook123` | US design agency, Austin TX. 5 clients, 29 expenses, 13 invoices, 5 projects. 2 contractors. |
 | **Jordan** | `jordan@agentbook.test` | `agentbook123` | Side-hustle, Portland OR. 2 clients (Etsy + writing), 28 expenses (mixed business/personal), split transaction demo. |
+| **Sydney** | `sydney@agentbook.test` | `agentbook123` | AU sole trader, NSW, AUD. **GST-registered** (persona definition). |
 | **Admin** | `admin@a3p.io` | `a3p-dev` | Platform admin. Empty AgentBook data. |
 
 ## Re-seeding Data
+
+Tax registration (persona definition: **maya and sydney are GST/HST registrants**; the prod e2e `tests/e2e/mobile-app/tax-codes.spec.ts` fails until this is applied). Sets `AbTenantConfig.gstRegistered = true` for those two tenants only, idempotent, dry-run unless `--apply`:
+
+```bash
+npx tsx agentbook/seed-persona-tax-registration.ts          # dry run: prints before -> after
+npx tsx agentbook/seed-persona-tax-registration.ts --apply  # write
+```
 
 If data gets wiped, re-run:
 

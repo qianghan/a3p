@@ -4,18 +4,15 @@ import {
   PERSONA_CURRENCY,
   amountInputText,
   deleteExpenseQuietly,
-  diffTotals,
   getExpense,
   listCategoryAccounts,
-  movedAccounts,
   pnlSnapshot,
   runTag,
+  suspenseAccountId,
   todayIso,
-  totalsSnapshot,
   type ExpenseAccount,
   type Persona,
   type PnlSnapshot,
-  type Totals,
 } from './fixtures';
 import { SEL } from './selectors';
 import { api, expectOk } from '../nightly/helpers/api';
@@ -32,8 +29,11 @@ import { computeLineTax, defaultTaxCode } from '../../../packages/agentbook-juri
  * maya (CA): the same lifecycle with her province's default code; QST is covered live only if she is in QC.
  * alex (US): no tax row on Capture and a plain 2-line gross posting.
  *
- * Fixtures are tagged, dated today (UTC), created and deleted by the test; seeded data is never touched. Every
- * persona's books (P&L, estimate, Home KPIs, 2100 and, for AU, the BAS) end where they started.
+ * Fixtures are tagged, dated today (UTC), created and deleted by the test; seeded data is never touched. The test
+ * never writes tenant config: sydney and maya are GST registrants by persona definition
+ * (agentbook/seed-persona-tax-registration.ts), and beforeAll fails loudly if that seed has not been applied.
+ * Every assertion is a before/after delta on the accounts this run touches (its category, 2100, 1000), so writes
+ * elsewhere in the persona's books cannot break it; the final check is that this run's net effect is zero.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -109,11 +109,10 @@ interface Ctx {
   page: Page;
   t: CatalogT;
   locale: string;
-  baseline: Totals;
-  baseTb: Tb;
-  /** Value to put back in afterAll when the test had to set the registration flag; undefined = untouched. */
-  restoreGst: boolean | null | undefined;
+  /** Net movement this run caused, summed from every measured step delta: key -> cents. Must end at zero. */
+  effect: Record<string, number>;
 }
+const SEED = 'agentbook/seed-persona-tax-registration.ts --apply';
 
 async function openPersona(browser: import('@playwright/test').Browser, baseURL: string | undefined, persona: Persona, needRegistered: boolean): Promise<Ctx> {
   const context = await newPersonaContext(browser, baseURL);
@@ -125,43 +124,65 @@ async function openPersona(browser: import('@playwright/test').Browser, baseURL:
   const t = catalogT(loc.stringLocale);
   // The catalog locale is only trusted once the page's own h1 renders in it.
   await expect(page.getByRole('heading', { name: t('mobile.capture.title') })).toBeVisible();
-  let restoreGst: boolean | null | undefined;
   if (needRegistered) {
-    // NEVER a permanent persona change: read the flag first; only if it is not already true is it set for this
-    // run, and afterAll puts the original value (true/false/null) back.
+    // Read only. A registrant persona whose flag is not true is a broken fixture, not a reason to skip.
     const cfg = await tenantConfig(page);
-    if (cfg.gstRegistered !== true) {
-      restoreGst = cfg.gstRegistered;
-      expectOk(await api(page).put(`${CORE}/tenant-config`, { gstRegistered: true }), 'set gstRegistered for the run');
-    }
+    expect(cfg.gstRegistered, `${persona} must be GST-registered (persona definition). Run: npx tsx ${SEED}`).toBe(true);
   }
-  return { context, page, t, locale: loc.formatLocale, baseline: await totalsSnapshot(page), baseTb: await trialBalance(page), restoreGst };
+  return { context, page, t, locale: loc.formatLocale, effect: {} };
 }
 
 async function closePersona(ctx: Ctx | undefined, created: string[]) {
   if (!ctx) return;
-  for (const id of created) await deleteExpenseQuietly(ctx.page, id);
-  if (ctx.restoreGst !== undefined) {
-    await api(ctx.page).put(`${CORE}/tenant-config`, { gstRegistered: ctx.restoreGst }).catch(() => undefined);
+  for (const id of created) {
+    try {
+      await deleteExpenseQuietly(ctx.page, id);
+      console.log(`[tax-codes e2e] afterAll deleted leftover fixture ${id}`);
+    } catch (err) {
+      console.error(`[tax-codes e2e] afterAll could not delete fixture ${id}:`, err);
+    }
   }
-  await ctx.context.close();
+  try { await ctx.context.close(); } catch (err) { console.error('[tax-codes e2e] afterAll context close failed:', err); }
 }
 
-/** One step of the typed lifecycle: the P&L moved exactly by `pnl`, 2100 by `gst`, and the books still balance. */
-async function expectStep(page: Page, before: { pnl: PnlSnapshot; tb: Tb }, pnl: Record<string, number>, gst: number) {
+/** Record a measured delta into the run's net effect. */
+function track(ctx: Ctx, key: string, cents: number) { ctx.effect[key] = (ctx.effect[key] ?? 0) + cents; }
+
+/**
+ * One step: each account in `pnl` moved by exactly its cents, 2100 by `gst`, 1000 by minus the gross, and the trial
+ * balance still balances. Only the accounts this run touches are compared, so unrelated writes cannot fail it.
+ */
+async function expectStep(ctx: Ctx, before: { pnl: PnlSnapshot; tb: Tb }, pnl: Record<string, number>, gst: number) {
+  const page = ctx.page;
   const after = { pnl: await pnlSnapshot(page), tb: await trialBalance(page) };
-  expect(movedAccounts(before.pnl, after.pnl), 'P&L movement by account').toEqual(pnl);
-  expect(tbDelta(before.tb, after.tb, '2100'), '2100 GST control moved by').toBe(gst);
+  for (const [acct, cents] of Object.entries(pnl)) {
+    const d = (after.pnl.expenseByAccount[acct] ?? 0) - (before.pnl.expenseByAccount[acct] ?? 0);
+    expect(d, `P&L account ${acct} moved by`).toBe(cents);
+    track(ctx, `pnl:${acct}`, d);
+  }
+  const dGst = tbDelta(before.tb, after.tb, '2100');
+  expect(dGst, '2100 GST control moved by').toBe(gst);
+  track(ctx, 'tb:2100', dGst);
   const gross = Object.values(pnl).reduce((s, v) => s + v, 0) + gst;
-  expect(tbDelta(before.tb, after.tb, '1000'), 'cash credited by the gross').toBe(-gross);
+  const dCash = tbDelta(before.tb, after.tb, '1000');
+  expect(dCash, 'cash credited by the gross').toBe(-gross);
+  track(ctx, 'tb:1000', dCash);
   expect(after.tb.balanced, 'trial balance balances').toBe(true);
   return after;
+}
+/** The account a saved expense booked to: its category, or the 6999 suspense account when it was saved uncategorised. */
+async function bookedAccount(page: Page, row: { categoryId?: string | null }): Promise<string> {
+  if (row.categoryId) return row.categoryId;
+  const susp = suspenseAccountId(await pnlSnapshot(page));
+  expect(susp, 'an uncategorised save books to the 6999 suspense account').toBeTruthy();
+  return susp as string;
 }
 const snap = async (page: Page) => ({ pnl: await pnlSnapshot(page), tb: await trialBalance(page) });
 
 /**
  * The typed lifecycle shared by AU and CA: create (with an idempotency key, then replayed), edit amount, change
- * category, delete. `split(gross)` is the engine's expected recoverable tax for a gross amount.
+ * category, delete. `recoverable(gross)` is the engine's expected recoverable tax for a gross amount. With `bas`,
+ * every step also asserts the BAS 1B/G10/G11 delta captured immediately around that step (AU).
  */
 function typedLifecycle(opts: {
   persona: Persona;
@@ -171,7 +192,7 @@ function typedLifecycle(opts: {
   firstGross: number;
   secondGross: number;
   recoverable: (gross: number) => number;
-  onBas?: (deltaRecoverable: number, deltaGross: number, before: Bas, after: Bas) => void;
+  bas?: boolean;
 }) {
   const tag = runTag(`E2ETAX${opts.persona.slice(0, 2).toUpperCase()}`);
   let first: ExpenseAccount;
@@ -180,84 +201,97 @@ function typedLifecycle(opts: {
   const key = crypto.randomUUID();
   const date = todayIso();
   let body: Record<string, unknown>;
-  let basBefore: Bas | null = null;
+
+  /** Run `act` and assert the BAS moved by exactly { 1B, G10, G11 } across it (AU only; otherwise just runs it). */
+  async function aroundBas(ctx: Ctx, act: () => Promise<void>, d: { b1: number; g10: number; g11: number }) {
+    if (!opts.bas) return act();
+    const before = await bas(ctx.page, date);
+    await act();
+    const after = await bas(ctx.page, date);
+    const got = {
+      b1: after.label1BGstOnPurchasesCents - before.label1BGstOnPurchasesCents,
+      g10: after.g10CapitalPurchasesCents - before.g10CapitalPurchasesCents,
+      g11: after.g11NonCapitalPurchasesCents - before.g11NonCapitalPurchasesCents,
+    };
+    expect(got, 'BAS 1B / G10 / G11 moved by').toEqual(d);
+    for (const [k2, v] of Object.entries(got)) track(ctx, `bas:${k2}`, v);
+  }
 
   test('typed create books the net on the category and the recoverable tax on 2100', async () => {
-    const { page } = opts.get();
+    const ctx = opts.get();
+    const { page } = ctx;
     [first, second] = await plainCategories(page);
-    const before = await snap(page);
-    if (opts.onBas) basBefore = await bas(page, date);
+    const rec = opts.recoverable(opts.firstGross);
+    expect(rec, 'the engine credits some tax for a registrant').toBeGreaterThan(0);
     body = {
       amountCents: opts.firstGross, taxCode: opts.taxCode(), taxInclusive: true, date,
       vendor: `${tag} Vendor`, description: `${tag} typed`, currency: PERSONA_CURRENCY[opts.persona],
       categoryId: first.id, categorySource: 'user',
     };
-    const res = await postExpenseWithKey(page, key, body);
-    expectOk(res, 'create typed expense');
-    id = res.data.data.id as string;
-    opts.created.push(id);
-    const rec = opts.recoverable(opts.firstGross);
-    expect(rec, 'the engine credits some tax for a registrant').toBeGreaterThan(0);
-    const row = (await getExpense(page, id)).data.data;
+    await aroundBas(ctx, async () => {
+      const before = await snap(page);
+      const res = await postExpenseWithKey(page, key, body);
+      expectOk(res, 'create typed expense');
+      id = res.data.data.id as string;
+      opts.created.push(id);
+      await expectStep(ctx, before, { [first.id]: opts.firstGross - rec }, rec);
+    }, { b1: rec, g10: 0, g11: opts.firstGross });
+    const row = (await getExpense(page, id as string)).data.data;
     expect([row.amountCents, row.taxCode, row.recoverableTaxCents]).toEqual([opts.firstGross, opts.taxCode(), rec]);
-    await expectStep(page, before, { [first.id]: opts.firstGross - rec }, rec);
-    if (opts.onBas && basBefore) opts.onBas(rec, opts.firstGross, basBefore, await bas(page, date));
   });
 
   test('replaying the same idempotency key is still one expense and moves nothing', async () => {
-    const { page } = opts.get();
-    const before = await snap(page);
-    const res = await postExpenseWithKey(page, key, body);
+    const ctx = opts.get();
+    const before = await snap(ctx.page);
+    const res = await postExpenseWithKey(ctx.page, key, body);
     expectOk(res, 'replay typed expense');
     expect(res.data.data.id, 'replay returns the original').toBe(id);
-    expect(await idsByQuery(page, tag)).toEqual([id]);
-    await expectStep(page, before, {}, 0);
+    expect(await idsByQuery(ctx.page, tag)).toEqual([id]);
+    await expectStep(ctx, before, { [first.id]: 0 }, 0);
   });
 
   test('editing the amount recomputes the recoverable split', async () => {
-    const { page } = opts.get();
-    const before = await snap(page);
-    expectOk(await api(page).put(`${EXPENSE}/expenses/${id}`, { amountCents: opts.secondGross }), 'edit amount');
+    const ctx = opts.get();
     const r1 = opts.recoverable(opts.firstGross);
     const r2 = opts.recoverable(opts.secondGross);
-    const row = (await getExpense(page, id as string)).data.data;
+    await aroundBas(ctx, async () => {
+      const before = await snap(ctx.page);
+      expectOk(await api(ctx.page).put(`${EXPENSE}/expenses/${id}`, { amountCents: opts.secondGross }), 'edit amount');
+      await expectStep(ctx, before, { [first.id]: (opts.secondGross - r2) - (opts.firstGross - r1) }, r2 - r1);
+    }, { b1: r2 - r1, g10: 0, g11: opts.secondGross - opts.firstGross });
+    const row = (await getExpense(ctx.page, id as string)).data.data;
     expect([row.amountCents, row.recoverableTaxCents]).toEqual([opts.secondGross, r2]);
-    await expectStep(page, before, { [first.id]: (opts.secondGross - r2) - (opts.firstGross - r1) }, r2 - r1);
   });
 
-  test('changing the category moves the net only; 2100 is untouched', async () => {
-    const { page } = opts.get();
-    const before = await snap(page);
-    expectOk(await api(page).put(`${EXPENSE}/expenses/${id}`, { categoryId: second.id }), 'change category');
+  test('changing the category moves the net only; 2100 and cash are untouched', async () => {
+    const ctx = opts.get();
     const net = opts.secondGross - opts.recoverable(opts.secondGross);
-    const after = { pnl: await pnlSnapshot(page), tb: await trialBalance(page) };
-    expect(movedAccounts(before.pnl, after.pnl)).toEqual({ [first.id]: -net, [second.id]: net });
-    expect(tbDelta(before.tb, after.tb, '2100')).toBe(0);
-    expect(tbDelta(before.tb, after.tb, '1000')).toBe(0);
-    expect(after.tb.balanced).toBe(true);
+    await aroundBas(ctx, async () => {
+      const before = await snap(ctx.page);
+      expectOk(await api(ctx.page).put(`${EXPENSE}/expenses/${id}`, { categoryId: second.id }), 'change category');
+      await expectStep(ctx, before, { [first.id]: -net, [second.id]: net }, 0);
+    }, { b1: 0, g10: 0, g11: 0 });
   });
 
   test('deleting reverses all three lines', async () => {
-    const { page } = opts.get();
-    const before = await snap(page);
-    expectOk(await api(page).delete(`${EXPENSE}/expenses/${id}`), 'delete typed expense');
+    const ctx = opts.get();
     const r2 = opts.recoverable(opts.secondGross);
-    await expectStep(page, before, { [second.id]: -(opts.secondGross - r2) }, -r2);
-    expect((await getExpense(page, id as string)).status).toBe(404);
-    if (opts.onBas && basBefore) {
-      const now = await bas(page, date);
-      expect([now.label1BGstOnPurchasesCents, now.g10CapitalPurchasesCents, now.g11NonCapitalPurchasesCents], 'BAS back to its start')
-        .toEqual([basBefore.label1BGstOnPurchasesCents, basBefore.g10CapitalPurchasesCents, basBefore.g11NonCapitalPurchasesCents]);
-    }
+    await aroundBas(ctx, async () => {
+      const before = await snap(ctx.page);
+      expectOk(await api(ctx.page).delete(`${EXPENSE}/expenses/${id}`), 'delete typed expense');
+      await expectStep(ctx, before, { [second.id]: -(opts.secondGross - r2) }, -r2);
+    }, { b1: -r2, g10: 0, g11: -opts.secondGross });
+    expect((await getExpense(ctx.page, id as string)).status).toBe(404);
+    opts.created.splice(opts.created.indexOf(id as string), 1);
   });
 }
 
-/** Back to baseline: nothing tagged is left and every headline figure (and the trial balance) is where it began. */
+/** This run's net effect is zero on every account it touched, and nothing tagged is left. */
 async function expectBaseline(ctx: Ctx, tagPrefix: string) {
   expect(await idsByQuery(ctx.page, tagPrefix), 'nothing of this run is left').toHaveLength(0);
-  expect(diffTotals(ctx.baseline, await totalsSnapshot(ctx.page)), 'fields that did not return to their start').toEqual([]);
-  const tb = await trialBalance(ctx.page);
-  for (const code of ['1000', '2100']) expect(tbDelta(ctx.baseTb, tb, code), `${code} back to baseline`).toBe(0);
+  const nonZero = Object.entries(ctx.effect).filter(([, v]) => v !== 0);
+  expect(Object.keys(ctx.effect).length, 'the run measured something').toBeGreaterThan(0);
+  expect(nonZero, "accounts this run did not return to where it found them").toEqual([]);
 }
 
 // ── sydney (AU) ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -283,12 +317,7 @@ test.describe('tax codes - sydney (AU)', () => {
   typedLifecycle({
     persona: 'sydney', get: () => ctx, created, taxCode: () => 'GST',
     firstGross: 11000, secondGross: 22000, recoverable: auRecoverable,
-    onBas: (rec, gross, before, after) => {
-      expect(rec).toBe(1000);
-      expect(after.label1BGstOnPurchasesCents - before.label1BGstOnPurchasesCents, 'BAS 1B rose by').toBe(1000);
-      expect(after.g11NonCapitalPurchasesCents - before.g11NonCapitalPurchasesCents, 'BAS G11 rose by the gross').toBe(gross);
-      expect(after.g10CapitalPurchasesCents - before.g10CapitalPurchasesCents, 'BAS G10 unchanged').toBe(0);
-    },
+    bas: true, // create: 1B +1000 (the golden test pins auRecoverable(11000) === 1000), G11 +11000
   });
 
   test('mobile Capture: the tax row prefills GST and Save books $110 as 10000 + 1000', async () => {
@@ -316,17 +345,23 @@ test.describe('tax codes - sydney (AU)', () => {
     const row = (await getExpense(page, id)).data.data;
     expect([row.amountCents, row.taxCode, row.taxAmountCents, row.recoverableTaxCents]).toEqual([11000, 'GST', 1000, 1000]);
     // The capture save books to whatever category the screen held (suggested or suspense); it moves by the net.
-    const booked = await expectStep(page, before, { [row.categoryId as string]: 10000 }, 1000);
-    void booked;
+    const acct = await bookedAccount(page, row);
+    await expectStep(ctx, before, { [acct]: 10000 }, 1000);
     const basAfter = await bas(page, todayIso());
-    expect(basAfter.label1BGstOnPurchasesCents - basBefore.label1BGstOnPurchasesCents, 'BAS 1B rose by').toBe(1000);
+    const d1B = basAfter.label1BGstOnPurchasesCents - basBefore.label1BGstOnPurchasesCents;
+    expect(d1B, 'BAS 1B rose by').toBe(1000);
+    track(ctx, 'bas:b1', d1B);
     const del = await snap(page);
+    const basDel = await bas(page, todayIso());
     expectOk(await api(page).delete(`${EXPENSE}/expenses/${id}`), 'delete captured expense');
-    await expectStep(page, del, { [row.categoryId as string]: -10000 }, -1000);
+    await expectStep(ctx, del, { [acct]: -10000 }, -1000);
+    const dDel = (await bas(page, todayIso())).label1BGstOnPurchasesCents - basDel.label1BGstOnPurchasesCents;
+    expect(dDel, 'BAS 1B fell by, across the delete').toBe(-1000);
+    track(ctx, 'bas:b1', dDel);
     created.splice(created.indexOf(id), 1);
   });
 
-  test("totals invariant: sydney's books and BAS are where they started", async () => {
+  test("net effect: this run left sydney's touched accounts and BAS where it found them", async () => {
     test.setTimeout(180_000);
     await expectBaseline(ctx, 'E2ETAX');
   });
@@ -346,7 +381,7 @@ test.describe('tax codes - maya (CA)', () => {
     test.setTimeout(240_000);
     const reason = loginUnavailableReason(testInfo.project.use.baseURL);
     test.skip(reason !== null, reason ?? '');
-    // Registration is set for the run only if needed and restored in afterAll; her region is never changed.
+    // Read-only: registration comes from the persona seed (fails loudly if missing); her region is never changed.
     ctx = await openPersona(browser, testInfo.project.use.baseURL, 'maya', true);
     cfg = await tenantConfig(ctx.page);
   });
@@ -383,7 +418,7 @@ test.describe('tax codes - maya (CA)', () => {
     expect([v.visible, v.defaultCode, v.preview?.taxCents, v.preview?.netCents]).toEqual([true, defaultTaxCode('ca', cfg.region), e.taxCents, e.netCents]);
   });
 
-  test("totals invariant: maya's books are where they started", async () => {
+  test("net effect: this run left maya's touched accounts where it found them", async () => {
     test.setTimeout(180_000);
     await expectBaseline(ctx, 'E2ETAX');
   });
@@ -428,14 +463,15 @@ test.describe('tax codes - alex (US)', () => {
     created.push(id);
     const row = (await getExpense(page, id)).data.data;
     expect([row.amountCents, row.recoverableTaxCents ?? 0]).toEqual([12345, 0]);
-    await expectStep(page, before, { [row.categoryId as string]: 12345 }, 0);
+    const acct = await bookedAccount(page, row);
+    await expectStep(ctx, before, { [acct]: 12345 }, 0);
     const del = await snap(page);
     expectOk(await api(page).delete(`${EXPENSE}/expenses/${id}`), 'delete');
-    await expectStep(page, del, { [row.categoryId as string]: -12345 }, 0);
+    await expectStep(ctx, del, { [acct]: -12345 }, 0);
     created.splice(created.indexOf(id), 1);
   });
 
-  test("totals invariant: alex's books are where they started", async () => {
+  test("net effect: this run left alex's touched accounts where it found them", async () => {
     await expectBaseline(ctx, 'E2ETAX');
   });
 });
