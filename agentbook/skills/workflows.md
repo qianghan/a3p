@@ -149,3 +149,10 @@ Kill and restart the affected backend, then run tests:
 lsof -i :<port> -t | xargs kill 2>/dev/null
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" DATABASE_URL_UNPOOLED="postgresql://postgres:postgres@localhost:5432/naap" PORT=<port> npx tsx plugins/<name>/backend/src/server.ts &
 ```
+
+### Editing employee profiles / sensitive fields (PR 4b)
+- PUT `agentbook-payroll/employees/[id]` rejects unknown keys (400). Bank `bankAccount` is the account number only; the routing part goes in `bankRoutingLabel` (BSB / transit+institution / ABA / sort code), validated per market. Masked echoes (`***-**-1234`) are ignored, never stored.
+- Changing `jurisdiction` while a tax id is stored needs a new `taxId` in the same request (400 `tax_id_reentry_required`).
+- Set `EMPLOYEE_PII_ENCRYPTION_KEY` on Vercel prod and preview before using sensitive fields; without it they return 503 `pii_key_unconfigured`.
+- Reveal: `POST employees/[id]/reveal {field: taxId|bankAccount|superMemberNumber}`, owner session only, audited. Never log request bodies or values.
+- Tests: `employee-privacy-routes.test.ts`, prod e2e `tests/e2e/mobile-app/employee-privacy.spec.ts`.
