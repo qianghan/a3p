@@ -306,7 +306,7 @@ function DocViewer({ id }: { id: string }) {
     } catch (e) {
       setDoc(before);
       const closed = (e as { status?: unknown } | null)?.status === 422;
-      toast.show(t(closed ? 'mobile.docs.confirm_period_closed' : 'mobile.docs.confirm_failed'), { tone: 'critical' });
+      toast.show(closed ? t('mobile.docs.confirm_period_closed') : t('mobile.docs.confirm_failed'), { tone: 'critical' });
       reconcile();
     } finally {
       end();
