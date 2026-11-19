@@ -54,3 +54,49 @@ describe('GET /agentbook-tax/ca/gst-hst-return', () => {
     expect(invoiceFindMany).not.toHaveBeenCalled();
   });
 });
+
+// PR 2b.7 golden mixed fixture (QC tenant): typed + untyped rows.
+const QC_MIXED_EXPENSES = [
+  // GST_QST: net 100000 → GST 5000 + QST 9975 = 14975 recoverable; gross 114975
+  { amountCents: 114_975, taxAmountCents: 14_975, taxCode: 'GST_QST', recoverableTaxCents: 14_975 },
+  // GST only: net 10000 → GST 500; gross 10500
+  { amountCents: 10_500, taxAmountCents: 500, taxCode: 'GST', recoverableTaxCents: 500 },
+  // EXEMPT with OCR tax 300 kept → no ITC
+  { amountCents: 3_300, taxAmountCents: 300, taxCode: 'EXEMPT', recoverableTaxCents: 0 },
+  // untyped legacy: whole taxAmountCents is the ITC (today's behaviour)
+  { amountCents: 11_300, taxAmountCents: 1_300, taxCode: null, recoverableTaxCents: 0 },
+];
+
+describe('GET /agentbook-tax/ca/gst-hst-return — typed expenses (PR 2b.7 golden)', () => {
+  it('GST+QST registrant: line 108 is GST/HST only; QST ITR separated', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC', gstRegistered: true, qstRegistered: true });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue(QC_MIXED_EXPENSES);
+    const body = await (await GET(req())).json();
+    // line 108 = 5000 (GST part of GST_QST) + 500 (GST) + 0 (EXEMPT, not its 300) + 1300 (untyped) = 6800
+    expect(body.data.line108ItcCents).toBe(6_800);
+    // QST ITR = 9975 (QST part of GST_QST)
+    expect(body.data.qstItrCents).toBe(9_975);
+  });
+
+  it('not QST-registered: QST ITR is 0 (stored recoverable is GST-only)', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC', gstRegistered: true, qstRegistered: false });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue([
+      // engine stores only the GST credit (5000) when qstRegistered !== true
+      { amountCents: 114_975, taxAmountCents: 14_975, taxCode: 'GST_QST', recoverableTaxCents: 5_000 },
+    ]);
+    const body = await (await GET(req())).json();
+    expect(body.data.line108ItcCents).toBe(5_000);
+    expect(body.data.qstItrCents).toBe(0);
+  });
+
+  it('non-registrant (gstRegistered === false): no ITCs at all', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'ca', region: 'QC', gstRegistered: false, qstRegistered: false });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue(QC_MIXED_EXPENSES);
+    const body = await (await GET(req())).json();
+    expect(body.data.line108ItcCents).toBe(0);
+    expect(body.data.qstItrCents).toBe(0);
+  });
+});

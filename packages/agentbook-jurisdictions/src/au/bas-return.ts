@@ -4,7 +4,9 @@
  *
  *   G1  — total sales (GST-INCLUSIVE, i.e. gross)
  *   1A  — GST on sales (GST collected)          = Σ invoice.taxCents
- *   1B  — GST on purchases (input tax credits)  = Σ expense.taxAmountCents
+ *   1B  — GST on purchases (input tax credits)  = Σ typed recoverableTaxCents
+ *         + Σ untyped taxAmountCents; 0 when gstRegistered === false
+ *   G10 — capital purchases (taxCode CAP), G11 — other purchases (GST-incl.)
  *   net GST (1A − 1B) — amount payable to / refundable from the ATO
  *
  * Like the CA GST/HST return, this is a PURE aggregation of already-recorded
@@ -24,9 +26,22 @@ export interface BasSalesLine {
 }
 
 export interface BasPurchaseLine {
-  /** GST paid on this purchase, in cents (expense.taxAmountCents). Feeds 1B. */
+  /** GST paid on this purchase, in cents (expense.taxAmountCents). Feeds 1B for UNTYPED rows. */
   gstPaidCents: number;
+  /** PR 2b: AU tax code (GST/CAP/FRE/INP/NTR); null/undefined = untyped legacy row. */
+  taxCode?: string | null;
+  /** PR 2b: input-tax credit computed at booking. Feeds 1B for TYPED rows. */
+  recoverableTaxCents?: number | null;
+  /** GST-inclusive purchase amount (expense.amountCents). Feeds G10/G11. */
+  grossCents?: number | null;
 }
+
+/**
+ * Codes excluded from G10/G11 ("BAS excluded": outside the GST system, e.g.
+ * wages, private, government fees). FRE/INP purchases DO count in G11 (ATO
+ * G11 is all non-capital purchases) but give no 1B credit.
+ */
+const BAS_EXCLUDED_CODES = new Set(['NTR']);
 
 export interface BasWageLine {
   /** Gross salary/wages paid this period, in cents (pay stub grossCents). Feeds W1. */
@@ -40,6 +55,8 @@ export interface BasReturnInput {
   periodEnd: string; // ISO date (inclusive)
   sales: BasSalesLine[];
   purchases: BasPurchaseLine[];
+  /** AbTenantConfig.gstRegistered. `false` → 1B is 0 (no ITCs without registration). */
+  gstRegistered?: boolean | null;
   /** Employer pay stubs in the period. Omit for a GST-only BAS (no employees). */
   wages?: BasWageLine[];
 }
@@ -49,6 +66,10 @@ export interface BasReturn {
   g1TotalSalesCents: number; // GST-inclusive
   label1AGstOnSalesCents: number;
   label1BGstOnPurchasesCents: number;
+  /** G10 capital purchases (GST-inclusive): typed rows coded CAP. */
+  g10CapitalPurchasesCents: number;
+  /** G11 non-capital purchases (GST-inclusive): other typed rows (not NTR) + all untyped rows. */
+  g11NonCapitalPurchasesCents: number;
   /** 1A − 1B. Positive = GST payable; negative = GST refund. */
   netGstCents: number;
   // PAYG withholding labels (present even when 0, so employer BAS is complete).
@@ -65,7 +86,17 @@ export function computeBasReturn(input: BasReturnInput): BasReturn {
   const wages = input.wages ?? [];
   const g1 = input.sales.reduce((s, r) => s + Math.max(0, r.grossSalesCents), 0);
   const label1A = input.sales.reduce((s, r) => s + r.gstCollectedCents, 0);
-  const label1B = input.purchases.reduce((s, p) => s + p.gstPaidCents, 0);
+  let label1B = 0;
+  let g10 = 0;
+  let g11 = 0;
+  for (const p of input.purchases) {
+    const typed = p.taxCode != null && p.taxCode !== '';
+    label1B += typed ? (p.recoverableTaxCents ?? 0) : p.gstPaidCents;
+    const gross = p.grossCents ?? 0;
+    if (typed && p.taxCode === 'CAP') g10 += gross;
+    else if (!typed || !BAS_EXCLUDED_CODES.has(p.taxCode as string)) g11 += gross;
+  }
+  if (input.gstRegistered === false) label1B = 0;
   const netGst = label1A - label1B;
   const w1 = wages.reduce((s, w) => s + Math.max(0, w.grossCents), 0);
   const w2 = wages.reduce((s, w) => s + w.paygWithheldCents, 0);
@@ -79,6 +110,8 @@ export function computeBasReturn(input: BasReturnInput): BasReturn {
     g1TotalSalesCents: g1,
     label1AGstOnSalesCents: label1A,
     label1BGstOnPurchasesCents: label1B,
+    g10CapitalPurchasesCents: g10,
+    g11NonCapitalPurchasesCents: g11,
     netGstCents: netGst,
     w1TotalWagesCents: w1,
     w2PaygWithheldCents: w2,

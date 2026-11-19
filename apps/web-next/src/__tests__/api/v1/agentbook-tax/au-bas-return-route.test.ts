@@ -74,3 +74,39 @@ describe('GET /agentbook-tax/au/bas-return', () => {
     expect(invoiceFindMany).not.toHaveBeenCalled();
   });
 });
+
+// PR 2b.7 golden mixed fixture: typed + untyped rows, registrant vs non-registrant.
+const AU_MIXED_EXPENSES = [
+  { amountCents: 11_000, taxAmountCents: 1_000, taxCode: 'GST', recoverableTaxCents: 1_000 }, // taxable
+  { amountCents: 220_000, taxAmountCents: 20_000, taxCode: 'CAP', recoverableTaxCents: 20_000 }, // capital
+  { amountCents: 5_000, taxAmountCents: 400, taxCode: 'FRE', recoverableTaxCents: 0 }, // GST-free; OCR tax ignored
+  { amountCents: 3_000, taxAmountCents: 0, taxCode: 'INP', recoverableTaxCents: 0 }, // input-taxed
+  { amountCents: 7_000, taxAmountCents: 0, taxCode: 'NTR', recoverableTaxCents: 0 }, // outside BAS
+  { amountCents: 5_500, taxAmountCents: 500, taxCode: null, recoverableTaxCents: 0 }, // untyped legacy
+];
+
+describe('GET /agentbook-tax/au/bas-return — typed expenses (PR 2b.7 golden)', () => {
+  it('registrant: 1B from recoverableTaxCents (typed) / taxAmountCents (untyped); G10/G11 split', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au', gstRegistered: true });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue(AU_MIXED_EXPENSES);
+    const body = await (await GET(req())).json();
+    // 1B = 1000 (GST) + 20000 (CAP) + 0 (FRE, not its 400 OCR tax) + 0 (INP) + 0 (NTR) + 500 (untyped) = 21500
+    expect(body.data.label1BGstOnPurchasesCents).toBe(21_500);
+    // G10 = 220000 (CAP only, GST-inclusive)
+    expect(body.data.g10CapitalPurchasesCents).toBe(220_000);
+    // G11 = 11000 (GST) + 5000 (FRE) + 3000 (INP) + 5500 (untyped) = 24500; NTR excluded
+    expect(body.data.g11NonCapitalPurchasesCents).toBe(24_500);
+    expect(body.data.netGstCents).toBe(-21_500);
+  });
+
+  it('non-registrant (gstRegistered === false): 1B is 0, G10/G11 unchanged', async () => {
+    tenantConfigFindUnique.mockResolvedValue({ jurisdiction: 'au', gstRegistered: false });
+    invoiceFindMany.mockResolvedValue([]);
+    expenseFindMany.mockResolvedValue(AU_MIXED_EXPENSES);
+    const body = await (await GET(req())).json();
+    expect(body.data.label1BGstOnPurchasesCents).toBe(0);
+    expect(body.data.g10CapitalPurchasesCents).toBe(220_000);
+    expect(body.data.g11NonCapitalPurchasesCents).toBe(24_500);
+  });
+});

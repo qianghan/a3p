@@ -56,7 +56,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // is the GST/HST paid portion recorded at booking.
       db.abExpense.findMany({
         where: { tenantId, isPersonal: false, date: { gte, lte } },
-        select: { taxAmountCents: true },
+        select: { amountCents: true, taxAmountCents: true, taxCode: true, recoverableTaxCents: true },
       }),
     ]);
 
@@ -67,7 +67,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         netSalesCents: i.amountCents - (i.taxCents ?? 0),
         taxCollectedCents: i.taxCents ?? 0,
       })),
-      purchases: expenses.map((e) => ({ taxPaidCents: e.taxAmountCents ?? 0 })),
+      // PR 2b.7: typed rows → recoverableTaxCents (QST part split out); untyped → taxAmountCents.
+      purchases: expenses.map((e) => ({
+        taxPaidCents: e.taxAmountCents ?? 0,
+        taxCode: e.taxCode,
+        recoverableTaxCents: e.recoverableTaxCents,
+        grossCents: e.amountCents,
+      })),
+      region: cfg?.region ?? null,
+      gstRegistered: cfg?.gstRegistered ?? null,
+      qstRegistered: cfg?.qstRegistered ?? null,
     });
 
     return NextResponse.json({ success: true, data: result });
