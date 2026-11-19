@@ -3,6 +3,7 @@
  * Every financial action produces a balanced journal entry.
  * The constraint engine is code, not LLM prompts.
  */
+import { loadUnpaidBills, outstandingCents, summarizeUnpaidBills } from './bill-amounts.js';
 import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase.js';
 import 'dotenv/config';
 import crypto from 'node:crypto';
@@ -4669,15 +4670,15 @@ async function _executeClassificationCore(
         await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
         return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bill }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
       }
-      const bills = await db.abBill.findMany({ where: { tenantId, status: 'open' }, orderBy: { dueDate: 'asc' } });
+      // Unpaid = open | partial, live; amounts are OUTSTANDING (bill-amounts.ts).
+      const bills = await loadUnpaidBills(db, tenantId);
       const now = new Date();
-      const openCents = bills.reduce((s, b) => s + b.amountCents, 0);
-      const overdue = bills.filter((b) => b.dueDate < now);
+      const { openCents, overdue } = summarizeUnpaidBills(bills, now);
       let message: string;
       if (bills.length === 0) {
         message = t('skill.bills_none_open', { page: PAGE_BILLS });
       } else {
-        const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(b.amountCents)} due ${new Date(b.dueDate).toLocaleDateString(replyLocale)}`).join('\n');
+        const list = bills.slice(0, 8).map((b) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(outstandingCents(b))} due ${new Date(b.dueDate).toLocaleDateString(replyLocale)}`).join('\n');
         message = `${t('skill.bills_open', { amount: fmt(openCents), count: bills.length })}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
       }
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
@@ -4931,13 +4932,13 @@ async function _executeClassificationCore(
       const [uncategorized, missingReceipts, openBills] = await Promise.all([
         db.abExpense.count({ where: { tenantId, deletedAt: null, status: 'confirmed', categoryId: null } }),
         db.abExpense.count({ where: { tenantId, deletedAt: null, status: 'confirmed', receiptUrl: null } }),
-        db.abBill.findMany({ where: { tenantId, status: 'open' } }),
+        loadUnpaidBills(db, tenantId),
       ]);
-      const overdue = openBills.filter((b) => b.dueDate < now);
+      const { overdue, overdueCents } = summarizeUnpaidBills(openBills, now);
       const findings: string[] = [];
       if (uncategorized > 0) findings.push(`🟡 ${uncategorized} uncategorized expense${uncategorized === 1 ? '' : 's'} — categorize so they flow to the right tax line.`);
       if (missingReceipts > 0) findings.push(`🟡 ${missingReceipts} expense${missingReceipts === 1 ? '' : 's'} missing a receipt — attach for audit-readiness.`);
-      if (overdue.length > 0) findings.push(`🔴 ${overdue.length} overdue bill${overdue.length === 1 ? '' : 's'} (${fmt(overdue.reduce((s, b) => s + b.amountCents, 0))}) — review and pay.`);
+      if (overdue.length > 0) findings.push(`🔴 ${overdue.length} overdue bill${overdue.length === 1 ? '' : 's'} (${fmt(overdueCents)}) — review and pay.`);
       const penalty = (uncategorized > 0 ? 8 : 0) + (missingReceipts > 0 ? 8 : 0) + (overdue.length > 0 ? 18 : 0);
       const score = Math.max(0, 100 - penalty);
       const message = findings.length === 0

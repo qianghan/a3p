@@ -131,9 +131,11 @@ export const TENANT_CONFIGS: Row[] = [
 ];
 
 export const BILLS: Row[] = [
-  { id: 'b1', tenantId: 't1', vendorName: 'Rent Co', amountCents: 150000, status: 'open', dueDate: day('2026-06-24') },
+  { id: 'b1', tenantId: 't1', vendorName: 'Rent Co', amountCents: 150000, status: 'open', paidCents: 0, postingMode: 'at_payment', deletedAt: null, dueDate: day('2026-06-24') },
   { id: 'b2', tenantId: 't1', vendorName: 'Old Vendor', amountCents: 5000, status: 'paid', dueDate: day('2026-06-21') },
   { id: 'bx', tenantId: 't2', vendorName: 'Other Rent', amountCents: 1, status: 'open', dueDate: day('2026-06-22') },
+  // PR 3bc.5: a soft-deleted open bill must never surface on Home/Upcoming.
+  { id: 'b-del', tenantId: 't1', vendorName: 'Deleted Co', amountCents: 999, paidCents: 0, status: 'open', postingMode: 'at_payment', deletedAt: day('2026-06-01'), dueDate: day('2026-06-20') },
 ];
 
 export const CALENDAR: Row[] = [

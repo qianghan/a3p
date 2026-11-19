@@ -7,6 +7,7 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { runCpaReview, type ReviewMetrics } from '@/lib/cpa-review';
+import { summarizeUnpaidBills, unpaidBillWhere } from '@/lib/bill-amounts';
 
 export function currentMonthKey(d = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -33,13 +34,13 @@ export async function runReviewForTenant(tenantId: string) {
   const [uncategorizedExpenseCount, missingReceiptCount, openBills, revenueAccounts, expenseAccounts, cashAccount] = await Promise.all([
     db.abExpense.count({ where: { tenantId, deletedAt: null, status: 'confirmed', categoryId: null } }),
     db.abExpense.count({ where: { tenantId, deletedAt: null, status: 'confirmed', receiptUrl: null } }),
-    db.abBill.findMany({ where: { tenantId, status: 'open' } }),
+    db.abBill.findMany({ where: { tenantId, ...unpaidBillWhere() } }),
     db.abAccount.findMany({ where: { tenantId, accountType: 'revenue', isActive: true }, select: { id: true } }),
     db.abAccount.findMany({ where: { tenantId, accountType: 'expense', isActive: true }, select: { id: true } }),
     db.abAccount.findFirst({ where: { tenantId, code: '1000' }, select: { id: true } }),
   ]);
 
-  const overdue = openBills.filter((b) => b.dueDate < now);
+  const { overdue, overdueCents } = summarizeUnpaidBills(openBills, now);
 
   // Cash on hand = debits − credits on the cash account (no stored balance).
   const cashAgg = cashAccount
@@ -67,7 +68,7 @@ export async function runReviewForTenant(tenantId: string) {
     uncategorizedExpenseCount,
     missingReceiptCount,
     overdueBillCount: overdue.length,
-    overdueBillCents: overdue.reduce((s, b) => s + b.amountCents, 0),
+    overdueBillCents: overdueCents,
     effectiveTaxRate,
     netIncomeCents,
     estimatedTaxCents,

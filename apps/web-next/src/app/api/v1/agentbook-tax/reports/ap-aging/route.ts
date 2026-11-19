@@ -14,6 +14,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { bucketFor } from '@/lib/ap-aging';
 import { publicErrorMessage } from '@/lib/api-error';
+import { outstandingCents, sumOutstanding, unpaidBillWhere } from '@/lib/bill-amounts';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     if ('response' in __resolved) return __resolved.response;
     const { tenantId } = __resolved;
 
-    const bills = await db.abBill.findMany({ where: { tenantId, status: 'open' } });
+    const bills = await db.abBill.findMany({ where: { tenantId, ...unpaidBillWhere() } });
     const now = new Date();
 
     const buckets: Record<string, { label: string; totalCents: number; count: number }> = {
@@ -37,11 +38,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     for (const b of bills) {
       const key = bucketFor(b.dueDate, now);
-      buckets[key].totalCents += b.amountCents;
+      buckets[key].totalCents += outstandingCents(b);
       buckets[key].count += 1;
     }
 
-    const totalOwedCents = bills.reduce((s, b) => s + b.amountCents, 0);
+    const totalOwedCents = sumOutstanding(bills);
 
     return NextResponse.json({
       success: true,

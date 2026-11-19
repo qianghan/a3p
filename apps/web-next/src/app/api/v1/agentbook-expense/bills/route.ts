@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { isUnpaid, liveBillWhere, outstandingCents } from '@/lib/bill-amounts';
 import { postBill, PurchaseError } from '@/lib/purchases';
 import { isPurchasesAtEntryEnabled } from '@/lib/purchases-flag';
 
@@ -30,7 +31,7 @@ interface BillRow {
 }
 
 function effectiveStatus(b: BillRow, now: Date): string {
-  if (b.status === 'open' && b.dueDate < now) return 'overdue';
+  if (isUnpaid(b) && b.dueDate < now) return 'overdue';
   return b.status;
 }
 
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const statusFilter = request.nextUrl.searchParams.get('status') || 'all';
 
     const rows = await db.abBill.findMany({
-      where: { tenantId, ...(statusFilter !== 'all' && statusFilter !== 'overdue' ? { status: statusFilter } : {}) },
+      where: { tenantId, ...liveBillWhere(), ...(statusFilter !== 'all' && statusFilter !== 'overdue' ? { status: statusFilter } : {}) },
       orderBy: { dueDate: 'asc' },
     });
 
@@ -52,8 +53,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ? withStatus.filter((b) => b.effectiveStatus === 'overdue')
       : withStatus;
 
-    const openCents = withStatus.filter((b) => b.status === 'open').reduce((s, b) => s + b.amountCents, 0);
-    const overdueCents = withStatus.filter((b) => b.effectiveStatus === 'overdue').reduce((s, b) => s + b.amountCents, 0);
+    // Unpaid = open | partial (lib/bill-amounts); amounts are OUTSTANDING.
+    const openCents = withStatus.reduce((s, b) => s + outstandingCents(b), 0);
+    const overdueCents = withStatus.filter((b) => b.effectiveStatus === 'overdue').reduce((s, b) => s + outstandingCents(b), 0);
 
     return NextResponse.json({
       success: true,

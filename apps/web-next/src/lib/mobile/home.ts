@@ -16,6 +16,7 @@ import { defaultCurrencyFor } from '@/lib/jurisdiction-currency';
 import { missingReceiptWhere, rankAlerts } from './alerts';
 import { getUpcoming, daysBetweenUtc } from './upcoming';
 import type { MobileAlert, MobileHome, RecentItem } from './types';
+import { outstandingCents, unpaidBillWhere } from '@/lib/bill-amounts';
 
 const DAY_MS = 86_400_000;
 export const HOME_NEXT_UP_DAYS = 30;
@@ -131,7 +132,7 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
     db.abExpense.count({ where: docFilterWhere(tenantId, 'needs-review') }),
     freshSuggestionCount(tenantId),
     db.abBill.findFirst({
-      where: { tenantId, status: 'open', dueDate: { lte: new Date(now.getTime() + BILL_ALERT_DAYS * DAY_MS) } },
+      where: { tenantId, ...unpaidBillWhere(), dueDate: { lte: new Date(now.getTime() + BILL_ALERT_DAYS * DAY_MS) } },
       orderBy: { dueDate: 'asc' },
     }),
     recentActivity(tenantId),
@@ -182,7 +183,7 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
       id: `bill_due:${dueBill.id}`,
       kind: 'bill_due',
       severity: days < 0 ? 'critical' : 'warn',
-      params: { vendor: dueBill.vendorName, days, amountCents: dueBill.amountCents },
+      params: { vendor: dueBill.vendorName, days, amountCents: outstandingCents(dueBill) },
       target: { route: '/app/chat', query: { topic: 'bill_due' } },
     });
   }
