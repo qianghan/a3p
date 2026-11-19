@@ -18,6 +18,7 @@ import { computeGstHstReturn } from '@agentbook/jurisdictions/ca/gst-hst-return'
 import { publicErrorMessage } from '@/lib/api-error';
 import { isMealsAccount } from '@/lib/expense-tax';
 import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
+import { loadBillPurchases, gstBasisOf } from '@/lib/tax-return-bills';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const gte = new Date(`${periodStart}T00:00:00.000Z`);
     const lte = new Date(`${periodEnd}T23:59:59.999Z`);
 
-    const [invoices, expenses] = await Promise.all([
+    const gstBasis = gstBasisOf(cfg);
+    const [invoices, expenses, billLines] = await Promise.all([
       // GST/HST collected — invoices issued in the period that represent real
       // (not draft/void) sales. taxCents is the persisted tax portion.
       db.abInvoice.findMany({
@@ -60,11 +62,18 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         where: { tenantId, isPersonal: false, ...liveExpenseWhere(), date: { gte, lte } },
         select: { amountCents: true, taxAmountCents: true, taxCode: true, recoverableTaxCents: true, categoryId: true },
       }),
+      // PR 3bc.6: bill ITCs (bills are never AbExpense rows) on the tenant's GST/HST basis.
+      loadBillPurchases(db, tenantId, gte, lte, gstBasis),
     ]);
+    const billRows = billLines.map((b) => ({
+      amountCents: b.grossCents, taxAmountCents: b.taxPaidCents, taxCode: b.taxCode,
+      recoverableTaxCents: b.recoverableTaxCents, categoryId: b.categoryId,
+    }));
+    const purchaseRows = [...expenses, ...billRows];
 
     // Meals flag for GST_QST splits — the SAME isMealsAccount decision posting used.
     const mealCatIds = new Set<string>();
-    const catIds = [...new Set(expenses.filter((e) => e.taxCode === 'GST_QST' && e.categoryId).map((e) => e.categoryId as string))];
+    const catIds = [...new Set(purchaseRows.filter((e) => e.taxCode === 'GST_QST' && e.categoryId).map((e) => e.categoryId as string))];
     if (catIds.length > 0) {
       const accts = await db.abAccount.findMany({ where: { tenantId, id: { in: catIds } }, select: { id: true, name: true, taxCategory: true } });
       for (const a of accts) if (isMealsAccount(a)) mealCatIds.add(a.id);
@@ -78,7 +87,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         taxCollectedCents: i.taxCents ?? 0,
       })),
       // PR 2b.7: typed rows → recoverableTaxCents (QST part split out); untyped → taxAmountCents.
-      purchases: expenses.map((e) => ({
+      purchases: purchaseRows.map((e) => ({
         taxPaidCents: e.taxAmountCents ?? 0,
         taxCode: e.taxCode,
         recoverableTaxCents: e.recoverableTaxCents,
@@ -90,7 +99,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       qstRegistered: cfg?.qstRegistered ?? null,
     });
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({ success: true, data: { ...result, gstReportingBasis: gstBasis } });
   } catch (err) {
     console.error('[agentbook-tax/ca/gst-hst-return] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
