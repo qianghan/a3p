@@ -25,7 +25,7 @@ export interface Deposit {
 }
 
 export function quarterOf(date: Date): { q: number; year: number } {
-  return { q: Math.floor(date.getMonth() / 3) + 1, year: date.getFullYear() };
+  return { q: Math.floor(date.getUTCMonth() / 3) + 1, year: date.getUTCFullYear() };
 }
 
 /** Last day of the month following the quarter end. */
@@ -34,8 +34,8 @@ export function depositDueDate(year: number, q: number): string {
   const dueMonthIndex = q * 3; // 0-based month AFTER quarter end (Apr=3, Jul=6, Oct=9, Jan=12→next yr)
   const dueYear = dueMonthIndex > 11 ? year + 1 : year;
   const m = dueMonthIndex % 12;
-  const lastDay = new Date(dueYear, m + 1, 0).getDate();
-  return new Date(dueYear, m, lastDay).toISOString().slice(0, 10);
+  const lastDay = new Date(Date.UTC(dueYear, m + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(dueYear, m, lastDay)).toISOString().slice(0, 10);
 }
 
 const FORM_BY_JURISDICTION: Record<string, string> = { us: '941', ca: 't4', uk: 'paye', au: 'bas' };
@@ -70,9 +70,9 @@ export function computeDeposit(stubs: DepositStub[], jurisdiction: string, date:
  */
 export function sgDepositDueDate(year: number, q: number): string {
   const quarterEndMonthIndex = q * 3 - 1; // 0-based: Q1->2(Mar) Q2->5(Jun) Q3->8(Sep) Q4->11(Dec)
-  const quarterEndDate = new Date(year, quarterEndMonthIndex + 1, 0); // last day of the quarter-end month
+  const quarterEndDate = new Date(Date.UTC(year, quarterEndMonthIndex + 1, 0)); // last day of the quarter-end month
   const due = new Date(quarterEndDate);
-  due.setDate(due.getDate() + 28);
+  due.setUTCDate(due.getUTCDate() + 28);
   return due.toISOString().slice(0, 10);
 }
 
@@ -116,13 +116,13 @@ export function computeSgDeposit(stubs: { sgCents?: number }[], date: Date): Dep
 const FUTA_NET_RATE = 0.006;
 
 export function computeFutaDeposit(stubs: { grossCents: number }[], date: Date): Deposit {
-  const year = date.getFullYear();
+  const year = date.getUTCFullYear();
   const grossCents = stubs.reduce((sum, s) => sum + s.grossCents, 0);
   const amountCents = Math.round(grossCents * FUTA_NET_RATE);
   return {
     form: '940',
     periodLabel: String(year),
     amountCents,
-    dueDate: new Date(year + 1, 0, 31).toISOString().slice(0, 10),
+    dueDate: new Date(Date.UTC(year + 1, 0, 31)).toISOString().slice(0, 10),
   };
 }

@@ -16,10 +16,21 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { buildStpPayEvent, auFinancialYearOf, auFinancialYearStart } from '@agentbook/jurisdictions/au/stp-pay-event';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payRunStatutoryDateWhere, statutoryPayDate } from '@/lib/payroll-pay-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
+
+/** Most recent run by statutory date: newest dated run vs newest legacy (null payDate) run. */
+async function latestByPayDate(tenantId: string) {
+  const [dated, legacy] = await Promise.all([
+    db.abPayRun.findFirst({ where: { tenantId, payDate: { not: null } }, orderBy: { payDate: 'desc' } }),
+    db.abPayRun.findFirst({ where: { tenantId, payDate: null }, orderBy: { periodEnd: 'desc' } }),
+  ]);
+  if (!dated || !legacy) return dated ?? legacy;
+  return statutoryPayDate(dated) >= statutoryPayDate(legacy) ? dated : legacy;
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -35,21 +46,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Target pay run: the one requested, else the most recent by period end.
+    // Target pay run: the one requested, else the most recent by pay date (payDate ?? periodEnd).
     const payRunId = request.nextUrl.searchParams.get('payRunId');
     const target = payRunId
       ? await db.abPayRun.findFirst({ where: { id: payRunId, tenantId } })
-      : await db.abPayRun.findFirst({ where: { tenantId }, orderBy: { periodEnd: 'desc' } });
+      : await latestByPayDate(tenantId);
     if (!target) {
       return NextResponse.json({ success: false, error: { code: 'no_pay_run', message: 'No pay run found to report.' } }, { status: 404 });
     }
 
-    const financialYear = auFinancialYearOf(target.periodEnd);
+    // PR 4d: the FY and YTD window follow the PAY date (payDate ?? periodEnd).
+    const targetPayDate = statutoryPayDate(target);
+    const financialYear = auFinancialYearOf(targetPayDate);
     const fyStart = auFinancialYearStart(financialYear);
 
     // Every pay run in the FY up to (and including) the target → YTD basis.
     const runs = await db.abPayRun.findMany({
-      where: { tenantId, periodEnd: { gte: fyStart, lte: target.periodEnd } },
+      where: { tenantId, ...payRunStatutoryDateWhere({ gte: fyStart, lte: targetPayDate }) },
       include: { stubs: { select: { employeeId: true, employeeName: true, grossCents: true, federalTaxCents: true, sgCents: true } } },
     });
 
@@ -73,7 +86,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       payees: [...byEmp.values()],
     });
 
-    return NextResponse.json({ success: true, data: { payRunId: target.id, ...event } });
+    return NextResponse.json({
+      success: true,
+      data: { payRunId: target.id, ...event, payDate: targetPayDate.toISOString().slice(0, 10), periodEnd: target.periodEnd.toISOString().slice(0, 10), reportingBasis: 'pay_date' },
+    });
   } catch (err) {
     console.error('[agentbook-payroll/au/stp] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });

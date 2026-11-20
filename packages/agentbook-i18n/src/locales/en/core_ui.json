@@ -335,6 +335,7 @@
   "gst_registered_label_ca": "Registered for GST/HST?",
   "gst_basis_label_ca": "GST/HST reporting basis",
   "gst_basis_open_bills": "Open bills: {count}. Until they are paid, your P&L and balance sheet use accrual basis. Your sales tax return still counts purchases when they are paid.",
+  "payroll_reports_use_pay_date": "Statutory reports (STP, W-2/T4/payment summaries, tax deposits) use each pay run’s pay date. Your profit and loss records payroll on the period end date.",
   "weekly": "Weekly",
   "bi_weekly": "Bi-weekly",
   "fortnightly": "Fortnightly",

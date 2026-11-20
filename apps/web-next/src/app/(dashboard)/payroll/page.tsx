@@ -470,6 +470,10 @@ export default function PayrollPage() {
           )}
         </>
       )}
+
+      {(tab === 'deposits' || tab === 'yearend' || tab === 'stp') && (
+        <p data-testid="payroll-pay-date-footer" className="mt-4 text-xs text-muted-foreground">{t('core_ui.payroll_reports_use_pay_date')}</p>
+      )}
     </div>
   );
 }

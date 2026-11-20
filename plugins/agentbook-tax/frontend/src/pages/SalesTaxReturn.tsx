@@ -176,6 +176,9 @@ export const SalesTaxReturnPage: React.FC = () => {
       {basis?.gstReportingBasis === 'cash' && (
         <p data-testid="return-sales-basis" className="text-xs text-muted-foreground">{t('tax_ui.return_sales_by_invoice_date')}</p>
       )}
+      {jurisdiction === 'au' && lines?.some((l) => l.label.startsWith('W1')) && (
+        <p data-testid="return-wages-basis" className="text-xs text-muted-foreground">{t('tax_ui.return_wages_by_pay_date')}</p>
+      )}
       <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
         Prepared from your invoices and expenses for review and hand-off. AgentBook does <b>not</b> lodge this
         electronically — file it through {jurisdiction === 'au' ? 'the ATO (Online services / your BAS agent)' : 'CRA (My Business Account / NETFILE) or your accountant'}.

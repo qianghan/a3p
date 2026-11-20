@@ -1,0 +1,50 @@
+{
+  "id": "pr4d-paydate",
+  "title": "PR 4d — statutory reports bucket by pay date; payroll journal stays on period end (owner call O1)",
+  "goals": [
+    {
+      "id": "G1-statutory-buckets",
+      "covers": ["R-EMP-4"],
+      "text": "Boundary behaviour is proven by the unit fixture; the prod e2e proves report/recompute consistency and the declared pay-date basis. STP (FY + YTD window, default target = latest by pay date), BAS W1/W2, year-end forms and PDF, the 941/940 deposit PDF and the deposit period accrued on processing all bucket by payDate ?? periodEnd (legacy null payDate keeps periodEnd); a fixture crossing a BAS quarter (30 Sep paid 3 Oct; 30 Jun paid 2 Jul) and a year (31 Dec paid 2 Jan) asserts each consumer's computed bucket through a where-applying DB mock; the journal entry stays dated periodEnd; re-processing a processed run is refused and its amounts never change, only its bucket; quarter/year math is UTC (1 Jan and 31 Mar/1 Apr cases pass under TZ=America/Los_Angeles).",
+      "tests": [
+        "apps/web-next/src/__tests__/api/v1/agentbook-payroll/paydate-statutory-buckets.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-payroll/au-stp-route.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-tax/au-bas-return-route.test.ts"
+      ]
+    },
+    {
+      "id": "G2-footer",
+      "covers": ["R-EMP-4"],
+      "text": "Payroll Tax deposits / Year-end / STP tabs and the AU BAS return (when W1/W2 show) carry a footer saying statutory reports use the pay date while the P&L uses the period end; en/fr-CA/zh-CN, fr-CA U+2019.",
+      "tests": [
+        "apps/web-next/src/__tests__/app/dashboard/payroll-page-paydate-footer.test.tsx",
+        "plugins/agentbook-tax/frontend/src/__tests__/sales-tax-return-lines.test.tsx"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/__tests__/app/dashboard/payroll-page-stp-au.test.tsx",
+      "apps/web-next/src/__tests__/app/dashboard/payroll-page-yearend-ca.test.tsx",
+      "apps/web-next/src/__tests__/api/v1/agentbook-tax/au-bas-bills-route.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-payroll/pay-runs-preview-route.test.ts"
+    ]
+  },
+  "ux": {
+    "vitest": [
+      "apps/web-next/src/__tests__/app/dashboard/payroll-page-paydate-footer.test.tsx",
+      "plugins/agentbook-tax/frontend/src/__tests__/sales-tax-return-lines.test.tsx",
+      "apps/web-next/src/__tests__/architecture/i18n-catalog.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-mobile-keys.test.ts"
+    ],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr4d-paydate-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr4d-paydate-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": ["agentbook/skills/workflows.md"],
+    "rollback": "Revert the PR. No schema change. Reports go back to bucketing by periodEnd; runs already processed keep the deposit rows they accrued (a run processed while this PR was live may have accrued into the pay-date quarter; with PR 4c's payDate = periodEnd default that is the same quarter). Journal dates are unaffected either way (always periodEnd).",
+    "prodPlaywright": ["tests/e2e/mobile-app/paydate.spec.ts"],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}

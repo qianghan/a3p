@@ -16,6 +16,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { computeBasReturn } from '@agentbook/jurisdictions/au/bas-return';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payRunStatutoryDateWhere } from '@/lib/payroll-pay-date';
 import { liveExpenseWhere } from '@/lib/agentbook-live-expense';
 import { loadBillPurchases, gstBasisOf } from '@/lib/tax-return-bills';
 
@@ -58,9 +59,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         select: { amountCents: true, taxAmountCents: true, taxCode: true, recoverableTaxCents: true },
       }),
       // PAYG-W (W1/W2): pay runs paid in the BAS period. federalTaxCents is the
-      // AU PAYG amount withheld; grossCents is the wages paid.
+      // AU PAYG amount withheld; grossCents is the wages paid. PR 4d: bucketed
+      // by pay date (legacy runs without one keep periodEnd).
       db.abPayRun.findMany({
-        where: { tenantId, periodEnd: { gte, lte } },
+        where: { tenantId, ...payRunStatutoryDateWhere({ gte, lte }) },
         select: { stubs: { select: { grossCents: true, federalTaxCents: true } } },
       }),
       // PR 3bc.6: bills (never AbExpense rows) — accrual by billDate, cash by payment date pro-rata.
@@ -91,7 +93,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       wages,
     });
 
-    return NextResponse.json({ success: true, data: { ...result, gstReportingBasis: gstBasis, salesBasis: 'invoice_date' } }); // M6: sales (1A/105) stay invoice-dated on both bases
+    return NextResponse.json({ success: true, data: { ...result, gstReportingBasis: gstBasis, salesBasis: 'invoice_date', wagesBasis: 'pay_date' } }); // M6: sales (1A/105) stay invoice-dated on both bases
   } catch (err) {
     console.error('[agentbook-tax/au/bas-return] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });

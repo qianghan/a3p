@@ -335,6 +335,7 @@
   "gst_registered_label_ca": "已注册商品及服务税/统一销售税（GST/HST）？",
   "gst_basis_label_ca": "GST/HST 申报基础",
   "gst_basis_open_bills": "未结清账单：{count} 张。在付清之前，损益表和资产负债表按权责发生制编制。销售税申报仍在付款时计入采购。",
+  "payroll_reports_use_pay_date": "法定申报（STP、W-2/T4/工资汇总、税款缴纳）按每次发薪的发薪日期计入。损益表按工资期结束日期记录工资。",
   "weekly": "每周",
   "bi_weekly": "每两周",
   "fortnightly": "每两周（澳洲）",

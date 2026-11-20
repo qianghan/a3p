@@ -45,6 +45,25 @@ describe('SalesTaxReturn lines', () => {
     expect(rowText('return-line-g10')).toContain('G10 — Achats d’immobilisations');
   });
 
+  it('PR 4d: AU BAS with wages shows the pay-date footer (en, fr-CA, zh-CN); none without wages', async () => {
+    cfg = { jurisdiction: 'au', currency: 'AUD' }; ret = { ...AU_RET, w1TotalWagesCents: 100000, w2PaygWithheldCents: 20000 };
+    const expected: Record<string, string> = {
+      en: 'W1 and W2 count wages by pay date',
+      'fr-CA': 'W1 et W2 comptent les salaires selon la date de paie',
+      'zh-CN': 'W1 和 W2 按发薪日期计入工资',
+    };
+    for (const [loc, text] of Object.entries(expected)) {
+      const { unmount } = render(withShell(<SalesTaxReturnPage />, loc as 'en'));
+      await waitFor(() => expect(screen.getByTestId('return-wages-basis')).toBeTruthy());
+      expect(screen.getByTestId('return-wages-basis').textContent).toContain(text);
+      unmount();
+    }
+    ret = AU_RET;
+    render(withShell(<SalesTaxReturnPage />));
+    await waitFor(() => expect(screen.getByTestId('return-line-g10')).toBeTruthy());
+    expect(screen.queryByTestId('return-wages-basis')).toBeNull();
+  });
+
   it('CA return shows the QST ITR line when present', async () => {
     cfg = { jurisdiction: 'ca', currency: 'CAD' }; ret = CA_RET;
     render(withShell(<SalesTaxReturnPage />));

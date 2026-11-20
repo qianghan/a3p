@@ -19,6 +19,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { render941Pdf, render940Pdf, renderGenericDepositPdf } from '@/lib/payroll-forms-pdf';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payRunStatutoryDateWhere } from '@/lib/payroll-pay-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,7 @@ function quarterRange(periodLabel: string): { start: Date; end: Date } | null {
   const year = parseInt(m[1], 10);
   const q = parseInt(m[2], 10);
   const startMonth = (q - 1) * 3;
-  return { start: new Date(year, startMonth, 1), end: new Date(year, startMonth + 3, 1) };
+  return { start: new Date(Date.UTC(year, startMonth, 1)), end: new Date(Date.UTC(year, startMonth + 3, 1)) };
 }
 
 /** Parse "YYYY" (940) into that calendar year's [start, end) date range. */
@@ -41,7 +42,7 @@ function yearRange(periodLabel: string): { start: Date; end: Date } | null {
   const m = periodLabel.match(/^(\d{4})$/);
   if (!m) return null;
   const year = parseInt(m[1], 10);
-  return { start: new Date(year, 0, 1), end: new Date(year + 1, 0, 1) };
+  return { start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year + 1, 0, 1)) };
 }
 
 export async function GET(request: NextRequest, ctx: RouteCtx): Promise<Response> {
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx): Promise<Response
       const range = deposit.form === '941' ? quarterRange(deposit.periodLabel) : yearRange(deposit.periodLabel);
       const stubs = range
         ? await db.abPayStub.findMany({
-            where: { tenantId, payRun: { periodEnd: { gte: range.start, lt: range.end }, status: 'paid' } },
+            where: { tenantId, payRun: { ...payRunStatutoryDateWhere({ gte: range.start, lt: range.end }), status: 'paid' } },
           })
         : [];
 
