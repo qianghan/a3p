@@ -2306,7 +2306,7 @@ model AbStockMovement {
 
   @@index([tenantId])
   @@index([itemId])
-  @@index([tenantId, sourceType, sourceId])
+  @@unique([tenantId, sourceType, sourceId])
   @@schema("plugin_agentbook_expense")
 }
 

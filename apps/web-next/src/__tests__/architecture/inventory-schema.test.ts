@@ -58,6 +58,7 @@ describe('AbStockMovement', () => {
     const b = modelBody('AbStockMovement');
     expect(b).toContain('@@index([tenantId])');
     expect(b).toContain('@@index([itemId])');
+    expect(b).toContain('@@unique([tenantId, sourceType, sourceId])');
   });
 });
 
