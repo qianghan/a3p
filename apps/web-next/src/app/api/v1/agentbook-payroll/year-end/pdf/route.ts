@@ -15,6 +15,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { buildYearEndForm } from '@/lib/year-end-forms';
 import { renderW2Pdf } from '@/lib/payroll-forms-pdf';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payRunStatutoryDateWhere } from '@/lib/payroll-pay-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       where: {
         tenantId,
         employeeId,
-        payRun: { periodEnd: { gte: yearStart, lt: yearEnd }, status: 'paid' },
+        payRun: { ...payRunStatutoryDateWhere({ gte: yearStart, lt: yearEnd }), status: 'paid' },
       },
     });
     if (stubs.length === 0) {

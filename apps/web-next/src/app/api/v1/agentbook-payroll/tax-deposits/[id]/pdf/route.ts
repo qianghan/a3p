@@ -19,6 +19,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { render941Pdf, render940Pdf, renderGenericDepositPdf } from '@/lib/payroll-forms-pdf';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payRunStatutoryDateWhere } from '@/lib/payroll-pay-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -65,7 +66,7 @@ export async function GET(request: NextRequest, ctx: RouteCtx): Promise<Response
       const range = deposit.form === '941' ? quarterRange(deposit.periodLabel) : yearRange(deposit.periodLabel);
       const stubs = range
         ? await db.abPayStub.findMany({
-            where: { tenantId, payRun: { periodEnd: { gte: range.start, lt: range.end }, status: 'paid' } },
+            where: { tenantId, payRun: { ...payRunStatutoryDateWhere({ gte: range.start, lt: range.end }), status: 'paid' } },
           })
         : [];
 

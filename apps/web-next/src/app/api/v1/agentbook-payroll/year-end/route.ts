@@ -9,6 +9,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { buildYearEndForm } from '@/lib/year-end-forms';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payRunStatutoryDateWhere } from '@/lib/payroll-pay-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const [employees, stubs] = await Promise.all([
       db.abEmployee.findMany({ where: { tenantId } }),
       db.abPayStub.findMany({
-        where: { tenantId, payRun: { periodEnd: { gte: yearStart, lt: yearEnd }, status: 'paid' } },
+        where: { tenantId, payRun: { ...payRunStatutoryDateWhere({ gte: yearStart, lt: yearEnd }), status: 'paid' } },
       }),
     ]);
 

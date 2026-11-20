@@ -15,6 +15,7 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { splitPayrollEntry } from '@/lib/payroll-ledger';
 import { computeDeposit, computeSgDeposit, computeFutaDeposit } from '@/lib/payroll-deposits';
 import { publicErrorMessage } from '@/lib/api-error';
+import { statutoryPayDate } from '@/lib/payroll-pay-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -84,6 +85,8 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
         const je = await tx.abJournalEntry.create({
           data: {
             tenantId,
+            // O1 (PR 4d): the journal stays on the EARNED period end; only
+            // statutory reports/deposits below use the pay date.
             date: run.periodEnd,
             memo: `Payroll ${run.periodStart.toISOString().slice(0, 10)}–${run.periodEnd.toISOString().slice(0, 10)}`,
             sourceType: 'payroll',
@@ -96,7 +99,7 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
 
       // Accrue the quarterly tax-deposit obligation for this run.
       if (split.withheldCents > 0) {
-        const dep = computeDeposit(run.stubs, jurisdiction, run.periodEnd);
+        const dep = computeDeposit(run.stubs, jurisdiction, statutoryPayDate(run));
         const existing = await tx.abPayrollTaxDeposit.findUnique({
           where: { tenantId_form_periodLabel: { tenantId, form: dep.form, periodLabel: dep.periodLabel } },
         });
@@ -113,7 +116,7 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
       // funds, not the ATO) with its own due-date rule — accrued independently
       // of the BAS/PAYG deposit above, never folded into it.
       if (split.sgCents > 0) {
-        const sgDep = computeSgDeposit(run.stubs, run.periodEnd);
+        const sgDep = computeSgDeposit(run.stubs, statutoryPayDate(run));
         const existingSg = await tx.abPayrollTaxDeposit.findUnique({
           where: { tenantId_form_periodLabel: { tenantId, form: sgDep.form, periodLabel: sgDep.periodLabel } },
         });
@@ -129,7 +132,7 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
       // Form 940 (FUTA) — US only, accrued annually (see computeFutaDeposit
       // for the wage-base simplification this uses).
       if (jurisdiction === 'us' && split.grossCents > 0) {
-        const futaDep = computeFutaDeposit(run.stubs, run.periodEnd);
+        const futaDep = computeFutaDeposit(run.stubs, statutoryPayDate(run));
         const existingFuta = await tx.abPayrollTaxDeposit.findUnique({
           where: { tenantId_form_periodLabel: { tenantId, form: futaDep.form, periodLabel: futaDep.periodLabel } },
         });

@@ -16,6 +16,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { buildStpPayEvent, auFinancialYearOf, auFinancialYearStart } from '@agentbook/jurisdictions/au/stp-pay-event';
 import { publicErrorMessage } from '@/lib/api-error';
+import { payRunStatutoryDateWhere, statutoryPayDate } from '@/lib/payroll-pay-date';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,12 +45,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: false, error: { code: 'no_pay_run', message: 'No pay run found to report.' } }, { status: 404 });
     }
 
-    const financialYear = auFinancialYearOf(target.periodEnd);
+    // PR 4d: the FY and YTD window follow the PAY date (payDate ?? periodEnd).
+    const targetPayDate = statutoryPayDate(target);
+    const financialYear = auFinancialYearOf(targetPayDate);
     const fyStart = auFinancialYearStart(financialYear);
 
     // Every pay run in the FY up to (and including) the target → YTD basis.
     const runs = await db.abPayRun.findMany({
-      where: { tenantId, periodEnd: { gte: fyStart, lte: target.periodEnd } },
+      where: { tenantId, ...payRunStatutoryDateWhere({ gte: fyStart, lte: targetPayDate }) },
       include: { stubs: { select: { employeeId: true, employeeName: true, grossCents: true, federalTaxCents: true, sgCents: true } } },
     });
 
@@ -73,7 +76,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       payees: [...byEmp.values()],
     });
 
-    return NextResponse.json({ success: true, data: { payRunId: target.id, ...event } });
+    return NextResponse.json({
+      success: true,
+      data: { payRunId: target.id, ...event, payDate: targetPayDate.toISOString().slice(0, 10), periodEnd: target.periodEnd.toISOString().slice(0, 10), reportingBasis: 'pay_date' },
+    });
   } catch (err) {
     console.error('[agentbook-payroll/au/stp] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });

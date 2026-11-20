@@ -156,3 +156,11 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" DATABASE_URL_U
 - Set `EMPLOYEE_PII_ENCRYPTION_KEY` on Vercel prod and preview before using sensitive fields; without it they return 503 `pii_key_unconfigured`.
 - Reveal: `POST employees/[id]/reveal {field: taxId|bankAccount|superMemberNumber}`, owner session only, audited. Never log request bodies or values.
 - Tests: `employee-privacy-routes.test.ts`, prod e2e `tests/e2e/mobile-app/employee-privacy.spec.ts`.
+
+### Payroll dates: pay date for statutory reports, period end for the journal (PR 4d, owner call O1)
+- Statutory reports bucket a pay run by `payDate ?? periodEnd`: STP (`au/stp`: FY + YTD window), BAS W1/W2 (`agentbook-tax/au/bas-return`), year-end W-2/T4/payment summaries and their PDF (`year-end`, `year-end/pdf`), the 941/940 tax-deposit PDF, and the deposit period accrued when a run is processed (941/BAS/SG/940/T4 remittance quarter or year). Legacy runs with `payDate = null` keep their old periodEnd bucket.
+- The payroll journal entry stays dated `periodEnd` (expense recognised when earned; `pay-runs/[id]/process`). Never use the pay date there.
+- Use `lib/payroll-pay-date.ts`: `statutoryPayDate(run)` for a date, `payRunStatutoryDateWhere({gte, lt|lte})` for a Prisma `AbPayRun` filter (spread it; inside `payRun: {...}` for stub queries). A new statutory consumer must use these, never `periodEnd` directly.
+- Internal-only `periodEnd` readers stay: pay-run list ordering, STP target selection (latest by period end), chat "last run" summary, the dashboard list.
+- Footers: `core_ui.payroll_reports_use_pay_date` (payroll Tax deposits / Year-end / STP tabs) and `tax_ui.return_wages_by_pay_date` (BAS when W1/W2 show).
+- Tests: `paydate-statutory-buckets.test.ts` (quarter + year boundary fixture, where-applying DB mock, processed-run snapshot), prod e2e `tests/e2e/mobile-app/paydate.spec.ts` (read-only: pay runs can't be deleted and processing merges into shared deposit rows).
