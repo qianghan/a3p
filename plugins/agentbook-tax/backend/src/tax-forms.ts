@@ -525,6 +525,24 @@ export async function seedAuForms(): Promise<{ created: number; updated: number 
 
 // === Source Query Resolution ===
 
+/**
+ * The income-year window for a jurisdiction, as UTC date-only bounds
+ * [start, endExclusive). AU: taxYear N is 1 Jul N-1 – 30 Jun N (the ATO's
+ * "2026 income year"); US/CA (and anything else): the calendar year.
+ * Used by the PR 5A trading-stock queries; never server-local time.
+ */
+export function incomeYearWindow(jurisdiction: string | null | undefined, taxYear: number): { start: Date; endExclusive: Date } {
+  if (String(jurisdiction || '').toLowerCase() === 'au') {
+    return { start: new Date(Date.UTC(taxYear - 1, 6, 1)), endExclusive: new Date(Date.UTC(taxYear, 6, 1)) };
+  }
+  return { start: new Date(Date.UTC(taxYear, 0, 1)), endExclusive: new Date(Date.UTC(taxYear + 1, 0, 1)) };
+}
+
+async function tenantIncomeYear(tenantId: string, taxYear: number) {
+  const cfg = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+  return incomeYearWindow(cfg?.jurisdiction, taxYear);
+}
+
 export async function resolveSourceQuery(
   tenantId: string, taxYear: number, query: string,
 ): Promise<number | string | null> {
@@ -547,19 +565,21 @@ export async function resolveSourceQuery(
   if (query.startsWith('net_expense_categories:')) {
     const codes = query.slice('net_expense_categories:'.length).split(',').map((c) => c.trim()).filter(Boolean);
     if (codes.length === 0) return 0;
+    const fy = await tenantIncomeYear(tenantId, taxYear);
     const result = await db.abJournalLine.aggregate({
       _sum: { debitCents: true, creditCents: true },
-      where: { entry: { tenantId, date: { gte: yearStart, lte: yearEnd } }, account: { code: { in: codes } } },
+      where: { entry: { tenantId, date: { gte: fy.start, lt: fy.endExclusive } }, account: { code: { in: codes } } },
     });
     return (result._sum.debitCents || 0) - (result._sum.creditCents || 0);
   }
 
-  // Balance-sheet account balance (debit − credit) as at the year end.
+  // Balance-sheet account balance (debit − credit) as at the income-year end (AU 30 Jun).
   if (query.startsWith('account_balance:')) {
     const code = query.slice('account_balance:'.length).trim();
+    const fy = await tenantIncomeYear(tenantId, taxYear);
     const result = await db.abJournalLine.aggregate({
       _sum: { debitCents: true, creditCents: true },
-      where: { entry: { tenantId, date: { lte: yearEnd } }, account: { code } },
+      where: { entry: { tenantId, date: { lt: fy.endExclusive } }, account: { code } },
     });
     return (result._sum.debitCents || 0) - (result._sum.creditCents || 0);
   }

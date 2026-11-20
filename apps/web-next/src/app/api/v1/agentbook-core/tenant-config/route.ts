@@ -49,7 +49,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 // down) precisely so the Tax Dashboard's entity-type picker can never
 // overwrite this and silently un-classify a student/startup tenant — see
 // VALID_TAX_ENTITY_TYPES for why these used to share one field.
-const VALID_BUSINESS_TYPES = ['freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student'] as const;
+const VALID_BUSINESS_TYPES = ['freelancer', 'sole_proprietor', 'consultant', 'contractor', 'agency', 'startup', 'student', 'merchant', 'retail'] as const;
 
 // Tax Dashboard's "Tax filing entity type" selector. Used to live on the
 // same `businessType` column as VALID_BUSINESS_TYPES above (sharing one

@@ -135,3 +135,22 @@ describe('rememberVendorCategory — what a human choice teaches', () => {
     t.upsert = orig;
   });
 });
+
+describe('suggestCategory never offers inventory-role accounts (PR 5A review I3)', () => {
+  it('a vendor default or an AI answer naming COGS / shrinkage is ignored', async () => {
+    const s = seed();
+    s.abAccount = [
+      ...s.abAccount,
+      { id: 'acc-cogs', tenantId: 't1', code: '5990', name: 'Cost of Goods Sold', accountType: 'expense', isActive: true },
+      { id: 'acc-shrink', tenantId: 't1', code: '5995', name: 'Inventory Shrinkage', accountType: 'expense', isActive: true },
+    ];
+    s.abVendor = [{ id: 'v9', tenantId: 't1', name: 'Wholesaler', normalizedName: 'wholesaler', defaultCategoryId: 'acc-cogs' }];
+    s.abPattern = [];
+    memDb.reset(s);
+    expect(await suggestCategory('t1', { vendor: 'Wholesaler' })).toBeNull();
+    llm.classify.mockResolvedValue({ categoryName: 'Inventory Shrinkage', confidence: 0.95, reason: 'x' });
+    expect(await suggestCategory('t1', { vendor: 'Someone New', amountCents: 4200 })).toBeNull();
+    const offered = (llm.classify.mock.calls[0]?.[1] ?? llm.classify.mock.calls[0]?.[0]) as unknown;
+    expect(JSON.stringify(offered ?? '')).not.toMatch(/Cost of Goods Sold|Inventory Shrinkage/);
+  });
+});

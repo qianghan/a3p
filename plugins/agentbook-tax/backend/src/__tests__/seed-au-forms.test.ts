@@ -218,3 +218,38 @@ describe('AU P8 trading stock (PR 5A)', () => {
     expect(await resolveSourceQuery('t', 2026, 'net_expense_categories:5000,5995')).toBe(3_000);
   });
 });
+
+describe('closing stock uses the income-year window in UTC (PR 5A review I1)', () => {
+  // 1500 debits by date; the aggregate mock applies the date filter the query sends.
+  const LINES = [
+    { date: '2025-08-15', cents: 3000 }, { date: '2025-12-20', cents: 2000 },
+    { date: '2026-03-01', cents: 1000 }, { date: '2026-06-30', cents: 500 },
+    { date: '2026-07-01', cents: 7000 },
+  ];
+  function stubLedger(jurisdiction: string) {
+    dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction } as any);
+    dbMock.abJournalLine.aggregate.mockImplementation(async (args: any) => {
+      const d = args.where.entry.date;
+      const sum = LINES.filter((l) => {
+        const t = new Date(`${l.date}T00:00:00.000Z`).getTime();
+        return (!d.gte || t >= d.gte.getTime()) && (!d.lt || t < d.lt.getTime());
+      }).reduce((s, l) => s + l.cents, 0);
+      return { _sum: { debitCents: sum, creditCents: 0 } };
+    });
+  }
+
+  it('AU 2026 income year closes 30 Jun 2026: Aug–Dec and Jan–Jun purchases count, 1 Jul does not', async () => {
+    const { resolveSourceQuery, incomeYearWindow } = (await loadTaxForms()) as any;
+    stubLedger('au');
+    expect(await resolveSourceQuery('t', 2026, 'account_balance:1500')).toBe(6500);
+    expect(incomeYearWindow('au', 2026).endExclusive.toISOString()).toBe('2026-07-01T00:00:00.000Z');
+  });
+
+  it('US/CA close 31 Dec: only Aug–Dec 2025 count for 2025', async () => {
+    const { resolveSourceQuery } = (await loadTaxForms()) as any;
+    stubLedger('us');
+    expect(await resolveSourceQuery('t', 2025, 'account_balance:1500')).toBe(5000);
+    stubLedger('ca');
+    expect(await resolveSourceQuery('t', 2025, 'account_balance:1500')).toBe(5000);
+  });
+});

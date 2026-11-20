@@ -1,8 +1,8 @@
 # PR 5A — UX post-deploy browser pass
 
-To tick in a real browser on the deployed site (en = alex, fr-CA = maya, zh-CN = switch locale; AU = sydney), after `npx tsx agentbook/seed-persona-inventory.ts --apply`.
+To tick in a real browser on the deployed site (en = alex, fr-CA = maya, zh-CN = switch locale; AU = sydney), after trackInventory is enabled for alex/maya/sydney via `PUT /api/v1/agentbook-core/tenant-config {"trackInventory":true}` signed in as each persona.
 
-- [ ] Settings › Business Profile: "Track inventory" checkbox visible and saved (alex), in en, fr-CA (U+2019 renders) and zh-CN.
+- [ ] Settings › Business Profile: "Track inventory" checkbox visible for a merchant/retail business type (and for alex once enabled), saved, in en, fr-CA (U+2019 renders) and zh-CN; hidden for a freelancer with tracking off.
 - [ ] Expenses › Items tab: renders translated in en, fr-CA (maya) and zh-CN; with tracking off, the turn-on message (not a humanised key).
 - [ ] Items: create an item, add opening stock, adjust −1; stock value and average cost update; delete removes the row.
 - [ ] Items: duplicate SKU shows the localized message.

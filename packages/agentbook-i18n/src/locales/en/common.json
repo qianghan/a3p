@@ -142,5 +142,7 @@
   "telegram_unlinking": "Unlinking…",
   "telegram_unlink_chats": "Unlink chats",
   "telegram_hide_advanced": "Hide advanced options",
-  "telegram_byo_instead": "Advanced: bring your own bot instead"
+  "telegram_byo_instead": "Advanced: bring your own bot instead",
+  "persona_merchant": "Merchant",
+  "persona_retail": "Retail"
 }

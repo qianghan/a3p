@@ -22,9 +22,11 @@ import { NextRequest } from 'next/server';
 vi.mock('server-only', () => ({}));
 
 const accountFindMany = vi.fn();
+const cfgFindUnique = vi.fn(async (..._a: unknown[]) => null as null | { jurisdiction: string });
 vi.mock('@naap/database', () => ({
   prisma: {
     abAccount: { findMany: (...a: unknown[]) => accountFindMany(...a) },
+    abTenantConfig: { findUnique: (...a: unknown[]) => cfgFindUnique(...a) },
   },
 }));
 
@@ -66,5 +68,35 @@ describe('GET /api/v1/agentbook-core/accounts (real production route)', () => {
 
     expect(body.data.map((a: any) => a.accountType)).toEqual(['expense', 'expense']);
     expect(body.data.map((a: any) => a.name).sort()).toEqual(['Rent or Lease', 'Supplies']);
+  });
+});
+
+describe('type=expense hides inventory-role accounts from the pickers (PR 5A review I3)', () => {
+  const ROLE_ROWS = [
+    { id: 'r0', code: '5000', name: 'Advertising', accountType: 'expense' },
+    { id: 'r1', code: '5990', name: 'Cost of Goods Sold', accountType: 'expense' },
+    { id: 'r2', code: '5995', name: 'Inventory Shrinkage', accountType: 'expense' },
+    { id: 'r3', code: '6100', name: 'Supplies', accountType: 'expense' },
+  ];
+  beforeEach(() => accountFindMany.mockImplementation(async () => ROLE_ROWS));
+
+  it('US: 5990 and 5995 hidden, 5000 Advertising kept', async () => {
+    cfgFindUnique.mockResolvedValue({ jurisdiction: 'us' });
+    const { GET } = await import('../route');
+    const body = await (await GET(new NextRequest('http://x/api/v1/agentbook-core/accounts?type=expense'))).json();
+    expect(body.data.map((a: any) => a.code)).toEqual(['5000', '6100']);
+  });
+
+  it('AU: 5000 is COGS there, so it is hidden too', async () => {
+    cfgFindUnique.mockResolvedValue({ jurisdiction: 'au' });
+    const { GET } = await import('../route');
+    const body = await (await GET(new NextRequest('http://x/api/v1/agentbook-core/accounts?type=expense'))).json();
+    expect(body.data.map((a: any) => a.code)).toEqual(['5990', '6100']);
+  });
+
+  it('no type filter (chart of accounts) still lists them', async () => {
+    const { GET } = await import('../route');
+    const body = await (await GET(new NextRequest('http://x/api/v1/agentbook-core/accounts'))).json();
+    expect(body.data).toHaveLength(4);
   });
 });

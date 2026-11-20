@@ -308,6 +308,15 @@ describe('registration flags (PR 2b.4)', () => {
     }
   });
 
+  it('accepts the merchant and retail business types (PR 5A: the inventory toggle is offered to them)', async () => {
+    for (const v of ['merchant', 'retail']) {
+      configUpsert.mockClear();
+      const { res, update } = await stored({ businessType: v });
+      expect(res.status).toBe(200);
+      expect(update?.businessType).toBe(v);
+    }
+  });
+
   it('stores trackInventory true / false and rejects a non-boolean (PR 5A)', async () => {
     for (const v of [true, false]) {
       configUpsert.mockClear();

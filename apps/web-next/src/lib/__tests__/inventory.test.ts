@@ -256,3 +256,47 @@ describe('reports', () => {
     expect(await lowStockItems(f.db, 't1')).toEqual([]);
   });
 });
+
+describe('PR 5A review fixes', () => {
+  it('I2: a negative adjust with an explicit value cannot exceed the stock value ($10 on hand, −$15 → 422)', async () => {
+    await recordOpeningStock(f.db, 't1', { itemId: 'item-1', qty: 2, valueCents: 1000, date: D('2026-11-01') });
+    await expect(adjustStock(f.db, 't1', { itemId: 'item-1', qty: -1, valueCents: 1500, date: D('2026-11-02') }))
+      .rejects.toMatchObject({ status: 422, code: 'adjust_value_exceeds_stock' });
+    // Emptying the stock must take out exactly what is left.
+    await expect(adjustStock(f.db, 't1', { itemId: 'item-1', qty: -2, valueCents: 900, date: D('2026-11-02') }))
+      .rejects.toMatchObject({ status: 422, code: 'adjust_value_mismatch' });
+    await adjustStock(f.db, 't1', { itemId: 'item-1', qty: -2, valueCents: 1000, date: D('2026-11-02') });
+    expect(item().onHandValueCents).toBe(0);
+    expect(qty()).toBe(0);
+    expectTiedOut();
+  });
+
+  it('adjust replay with a different value is a 409; same value replays', async () => {
+    await recordOpeningStock(f.db, 't1', { itemId: 'item-1', qty: 4, valueCents: 2000, date: D('2026-11-01') });
+    await adjustStock(f.db, 't1', { itemId: 'item-1', qty: -1, valueCents: 500, date: D('2026-11-02'), idempotencyKey: 'v' });
+    await expect(adjustStock(f.db, 't1', { itemId: 'item-1', qty: -1, valueCents: 600, date: D('2026-11-02'), idempotencyKey: 'v' }))
+      .rejects.toMatchObject({ status: 409 });
+    const again = await adjustStock(f.db, 't1', { itemId: 'item-1', qty: -1, valueCents: 500, date: D('2026-11-02'), idempotencyKey: 'v' });
+    expect(again.replayed).toBe(true);
+  });
+
+  it('relieveStock replay returns the original negative flag', async () => {
+    const first = await relieveStock(f.db, 't1', { itemId: 'item-1', qty: 2, date: D('2026-11-01'), sourceType: 'stock_sale', sourceId: 'n1' });
+    expect(first.negative).toBe(true);
+    const replay = await relieveStock(f.db, 't1', { itemId: 'item-1', qty: 2, date: D('2026-11-01'), sourceType: 'stock_sale', sourceId: 'n1' });
+    expect(replay.negative).toBe(true);
+    expect(f.state.movements).toHaveLength(1);
+  });
+
+  it.each(['at_entry', 'at_payment'] as const)('recoverable tax is netted out of stock value (%s): AU $110 incl GST → 1500 +$100, 2100 +$10', async (mode) => {
+    Object.assign(f.state.tenantConfigs[0], { jurisdiction: 'au', region: 'NSW', gstRegistered: true, currency: 'AUD' });
+    const { bill } = await postBill(f.db, 't1', itemBill({ postingMode: mode, lines: [{ description: '10 widgets', amountCents: 11000, itemId: 'item-1', qty: 10, taxCode: 'GST' }] }));
+    if (mode === 'at_payment') await payBill(f.db, 't1', bill.id, { date: D('2026-11-03') });
+    else await payBill(f.db, 't1', bill.id, { date: D('2026-11-03') });
+    expect(net('acct-inv')).toBe(10000);
+    expect(net('acct-gst')).toBe(1000);
+    expect(net('acct-cash')).toBe(-11000);
+    expect(item().onHandValueCents).toBe(10000);
+    expectTiedOut();
+  });
+});

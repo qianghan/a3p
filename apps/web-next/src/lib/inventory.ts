@@ -50,7 +50,11 @@ const CHART_JURISDICTIONS = new Set(['us', 'ca', 'au']);
 /** Packs whose 5000 already is Cost of Goods Sold (owner call O3). */
 const COGS_5000 = new Set(['au', 'uk']);
 
-/** The chart a tenant actually has: an unknown/unwired jurisdiction (incl. uk today) falls back to US. */
+/**
+ * The chart a tenant actually has: an unknown/unwired jurisdiction (incl. uk today) falls back to US.
+ * Owner-call O3 deviation: UK tenants run on the US chart where 5000 is Advertising, so their COGS is
+ * 5990 for now; a UK pack (CHART_PROVIDERS in agentbook-chart-of-accounts.ts) must move COGS to 5000.
+ */
 export function chartJurisdiction(jurisdiction: string | null | undefined): string {
   const j = String(jurisdiction || 'us').toLowerCase();
   return CHART_JURISDICTIONS.has(j) ? j : 'us';
@@ -63,6 +67,29 @@ export function accountCodeForRole(role: InventoryRole, jurisdiction: string | n
     case 'shrinkage': return '5995';
     case 'cogs': return COGS_5000.has(chartJurisdiction(jurisdiction)) ? '5000' : '5990';
   }
+}
+
+/** Every inventory-role account code for a jurisdiction (never an expense category a person picks). */
+export function inventoryRoleCodes(jurisdiction: string | null | undefined): Set<string> {
+  return new Set((['inventory', 'cogs', 'shrinkage', 'opening_equity'] as InventoryRole[]).map((r) => accountCodeForRole(r, jurisdiction)));
+}
+
+/**
+ * Drop inventory-role accounts (1500, 3900, the market's COGS, 5995) from a
+ * list of expense categories offered to a person or to auto-categorise: COGS
+ * and shrinkage are posted only by the inventory engine (PR 5A review I3).
+ * A tenant-config read failure falls back to the US set.
+ */
+export async function withoutInventoryRoles<T extends { code?: string | null }>(db: InventoryDb, tenantId: string, rows: T[]): Promise<T[]> {
+  let jurisdiction: string | null = null;
+  try {
+    const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+    jurisdiction = cfg?.jurisdiction ?? null;
+  } catch {
+    jurisdiction = null;
+  }
+  const codes = inventoryRoleCodes(jurisdiction);
+  return rows.filter((r) => !r.code || !codes.has(r.code));
 }
 
 export async function resolveAccountByRole(db: InventoryDb, tenantId: string, role: InventoryRole): Promise<{ id: string; code: string }> {
@@ -306,12 +333,27 @@ export async function adjustStock(db: TxDb, tenantId: string, input: { itemId: s
   const inv = await resolveAccountByRole(db, tenantId, 'inventory');
   const shrink = await resolveAccountByRole(db, tenantId, 'shrinkage');
   const key = { sourceType: 'stock_adjust', sourceId: input.idempotencyKey?.trim() || randomUUID() };
-  return postKeyed(db, tenantId, key, (m) => toUnits(m.qty) === qtyUnits && m.itemId === item.id, async (tx) => {
+  // A replay must be the same adjustment: item, qty, and (when given) value.
+  const same = (m: Row) => toUnits(m.qty) === qtyUnits && m.itemId === item.id &&
+    (input.valueCents == null || Math.abs(m.valueCents) === Math.abs(input.valueCents));
+  return postKeyed(db, tenantId, key, same, async (tx) => {
     await assertPeriodOpen(tx, tenantId, input.date);
     const cur = await tx.abInventoryItem.findFirst({ where: { id: item.id, tenantId } });
+    const curQty = toUnits(cur.onHandQty);
     // Signed value change to stock.
     let valueDelta: number;
-    if (qtyUnits < 0) valueDelta = -(input.valueCents != null ? Math.abs(input.valueCents) : reliefValueCents(toUnits(cur.onHandQty), cur.onHandValueCents, -qtyUnits));
+    if (qtyUnits < 0 && input.valueCents != null) {
+      // An explicit removal value can never take out more than the stock holds,
+      // and emptying the stock must take out exactly what is left (value 0 at qty 0).
+      const out = Math.abs(input.valueCents);
+      if (out > Math.max(0, cur.onHandValueCents)) {
+        throw new InventoryError(422, 'adjust_value_exceeds_stock', 'The value removed is more than the stock on hand is worth');
+      }
+      if (curQty + qtyUnits === 0 && out !== cur.onHandValueCents) {
+        throw new InventoryError(422, 'adjust_value_mismatch', 'Removing all stock must remove its whole value');
+      }
+      valueDelta = -out;
+    } else if (qtyUnits < 0) valueDelta = -reliefValueCents(curQty, cur.onHandValueCents, -qtyUnits);
     else valueDelta = input.valueCents!; // found stock (qty > 0) or a pure revaluation (qty 0)
     let entryId: string | null = null;
     if (valueDelta !== 0) {
@@ -332,7 +374,13 @@ export async function adjustStock(db: TxDb, tenantId: string, input: { itemId: s
  */
 export async function relieveStock(tx: InventoryDb, tenantId: string, input: { itemId: string; qty: unknown; date: Date; sourceType: string; sourceId: string; type?: string; memo?: string }): Promise<{ movement: Row; valueCents: number; negative: boolean }> {
   const hit = await findMovement(tx, tenantId, input.sourceType, input.sourceId);
-  if (hit) return { movement: hit, valueCents: -hit.valueCents, negative: false };
+  if (hit) {
+    // Replay: report the original outcome — was stock below zero right after this movement?
+    const all: Row[] = (await tx.abStockMovement.findMany({ where: { tenantId, itemId: hit.itemId }, orderBy: { createdAt: 'asc' } })) || [];
+    const upTo = all.slice(0, all.findIndex((m) => m.id === hit.id) + 1);
+    const qtyAfter = upTo.reduce((s, m) => s + toUnits(m.qty), 0);
+    return { movement: hit, valueCents: -hit.valueCents, negative: qtyAfter < 0 };
+  }
   const outUnits = toUnits(input.qty);
   if (outUnits <= 0) throw new InventoryError(400, 'invalid_qty');
   await assertPeriodOpen(tx, tenantId, input.date).catch(periodError);

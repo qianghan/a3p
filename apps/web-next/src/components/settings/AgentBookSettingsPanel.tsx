@@ -97,18 +97,18 @@ const BUSINESS_TYPE_OPTIONS = [
   { value: 'contractor', labelKey: 'common.persona_contractor' },
   { value: 'agency', labelKey: 'common.persona_agency' },
   { value: 'startup', labelKey: 'common.persona_startup' },
+  { value: 'merchant', labelKey: 'common.persona_merchant' },
+  { value: 'retail', labelKey: 'common.persona_retail' },
   { value: 'student', labelKey: 'common.persona_student' },
 ];
 
 /**
- * Business descriptions that sell goods: the inventory toggle is suggested
- * to them. It is OFFERED to every non-student business, and the gate is the
- * trackInventory flag itself, never businessType alone (spec §5.4).
+ * Business types that sell goods: the inventory toggle is offered to these
+ * only (spec §5.4). The GATE is still the trackInventory flag itself — an
+ * already-enabled tenant of any type keeps seeing the toggle so it can turn
+ * it off.
  */
-const RETAIL_HINT = /\b(retail|merchant|shop|store|e-?commerce|wholesale|resell|products?|goods|inventory|stock)\b/i;
-function suggestsInventory(cfg: Pick<TenantConfig, 'businessDescription' | 'businessTags'>): boolean {
-  return RETAIL_HINT.test(cfg.businessDescription ?? '') || (cfg.businessTags ?? []).some((tag) => RETAIL_HINT.test(tag));
-}
+export const INVENTORY_BUSINESS_TYPES: ReadonlySet<string> = new Set(['merchant', 'retail']);
 
 const DEGREE_OPTIONS = [
   { value: '', label: 'Select…' },
@@ -2203,7 +2203,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   </p>
                 </div>
               )}
-              {form.businessType !== 'student' && (
+              {(INVENTORY_BUSINESS_TYPES.has(form.businessType ?? '') || form.trackInventory === true) && (
                 <div data-testid="inventory-toggle">
                   <label className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <input
@@ -2215,7 +2215,7 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                     {t('core_ui.track_inventory')}
                   </label>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {suggestsInventory(form) && !form.trackInventory ? t('core_ui.track_inventory_suggested') : t('core_ui.track_inventory_help')}
+                    {t('core_ui.track_inventory_help')}
                   </p>
                 </div>
               )}

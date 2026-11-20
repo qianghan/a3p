@@ -1,7 +1,7 @@
 /**
- * PR 5A.4 — the trackInventory toggle in Business Profile: offered to every
- * non-student business, suggested when the description sells goods, and the
- * saved PUT carries the flag (the flag is the gate, never businessType alone).
+ * PR 5A.4 — the trackInventory toggle in Business Profile: offered to the
+ * merchant/retail business types only, and the saved PUT carries the flag
+ * (the flag is the gate, never businessType alone).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
@@ -11,7 +11,7 @@ const BASE = {
   companyName: 'Acme', companyAddress: null, companyEmail: null, companyPhone: null,
   abn: null, logoUrl: null, brandColor: '#000000', defaultPaymentTerms: 'net-30',
   invoiceFooterNote: null, invoiceThankYouMessage: null, businessType: 'freelancer',
-  gstRegistered: null, qstRegistered: null, gstReportingBasis: null, jurisdiction: 'us', region: 'CA',
+  gstRegistered: null, qstRegistered: null, gstReportingBasis: null, jurisdiction: 'ca', region: 'ON',
 };
 let puts: Array<Record<string, unknown>> = [];
 function mount(cfg: Record<string, unknown>) {
@@ -28,9 +28,12 @@ function mount(cfg: Record<string, unknown>) {
 }
 afterEach(() => vi.restoreAllMocks());
 
-describe('Business Profile — Track inventory', () => {
-  it('is offered to a non-student business and saves trackInventory: true', async () => {
-    mount({});
+/** The profile form has loaded this config: the company name input shows its value. */
+const loaded = () => screen.findByDisplayValue('Acme');
+
+describe('Business Profile — Track inventory (offered to merchant/retail only; gated on the flag)', () => {
+  it.each(['merchant', 'retail'])('%s: shown, and saving sends trackInventory: true', async (businessType) => {
+    mount({ businessType });
     const box = (await screen.findByTestId('inventory-toggle-input')) as HTMLInputElement;
     expect(box.checked).toBe(false);
     fireEvent.click(box);
@@ -39,22 +42,21 @@ describe('Business Profile — Track inventory', () => {
     expect(puts[0].trackInventory).toBe(true);
   });
 
-  it('suggests it when the business sells goods', async () => {
-    mount({ businessDescription: 'We run a small retail shop selling candles' });
-    const toggle = await screen.findByTestId('inventory-toggle');
-    // Rendered outside the shell, useT humanises the key, so compare keys' text.
-    expect(toggle.textContent).toMatch(/suggested/i);
-    expect(toggle.textContent).not.toMatch(/inventory help/i);
+  it.each(['freelancer', 'consultant', 'agency', 'contractor', 'startup'])('%s with tracking off: hidden', async (businessType) => {
+    mount({ businessType });
+    await loaded();
+    // The registration block beside it has rendered for this config, so absence is real.
+    expect(screen.getByTestId('reg-basis')).toBeTruthy();
+    expect(screen.queryByTestId('inventory-toggle')).toBeNull();
   });
 
-  it('reflects an enabled flag', async () => {
-    mount({ trackInventory: true });
+  it('a non-retail tenant that already has the flag on still sees it (so it can turn it off)', async () => {
+    mount({ businessType: 'consultant', trackInventory: true });
     expect(((await screen.findByTestId('inventory-toggle-input')) as HTMLInputElement).checked).toBe(true);
   });
 
   it('students do not see it', async () => {
     mount({ businessType: 'student' });
-    // The student-only block has rendered (outside the shell useT humanises the key).
     await screen.findByText(/international student question/i);
     expect(screen.queryByTestId('inventory-toggle')).toBeNull();
   });

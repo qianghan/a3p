@@ -396,11 +396,18 @@ export async function payBill(db: PurchasesDb, tenantId: string, billId: string,
     if (atPayment) {
       const cash = await accountByCode(db, tenantId, CASH_CODE);
       const itemCents = itemLines.reduce((s, l) => s + l.amountCents, 0);
+      // Stock is valued NET of recoverable tax on both posting modes; the
+      // recoverable part sits in 2100 (controller ruling, PR 5A review).
+      const itemRecoverable = itemLines.reduce((s, l) => s + (l.recoverableTaxCents ?? 0), 0);
       if (itemCents > amount) throw new PurchaseError(422, 'bill_lines_exceed_total');
       lines = [];
       if (itemCents > 0) {
         const inv = await resolveAccountByRole(db, tenantId, 'inventory').catch(inventoryError);
-        lines.push({ accountId: inv.id, debitCents: itemCents, creditCents: 0, description: `Inventory: ${bill.vendorName}` });
+        lines.push({ accountId: inv.id, debitCents: itemCents - itemRecoverable, creditCents: 0, description: `Inventory: ${bill.vendorName}` });
+      }
+      if (itemRecoverable > 0) {
+        const gst = await accountByCode(db, tenantId, RECOVERABLE_TAX_CODE);
+        lines.push({ accountId: gst.id, debitCents: itemRecoverable, creditCents: 0, description: `Recoverable tax: ${bill.vendorName}` });
       }
       if (amount - itemCents > 0) {
         const expense = bill.categoryCode ? await accountByCode(db, tenantId, bill.categoryCode) : await suspenseAccount(tenantId);
@@ -437,7 +444,7 @@ export async function payBill(db: PurchasesDb, tenantId: string, billId: string,
         }, lines);
         const payment = await tx.abBillPayment.update({ where: { id: paymentId }, data: { journalEntryId: entryId } });
         for (const l of itemLines) {
-          await recordPurchaseMovement(tx, tenantId, { itemId: l.itemId, billLineId: l.id, qty: l.qty, valueCents: l.amountCents, date, journalEntryId: entryId });
+          await recordPurchaseMovement(tx, tenantId, { itemId: l.itemId, billLineId: l.id, qty: l.qty, valueCents: l.amountCents - (l.recoverableTaxCents ?? 0), date, journalEntryId: entryId });
         }
         const updated = atPayment
           ? await tx.abBill.update({ where: { id: billId }, data: { journalEntryId: entryId } })

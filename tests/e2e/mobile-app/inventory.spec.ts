@@ -17,16 +17,19 @@ import { api, expectOk } from '../nightly/helpers/api';
  * CR 1000). If the flag IS on, the same assertions hold (at entry DR 1500 | CR 2000, at payment DR 2000 | CR 1000):
  * after the payment, 1500 +amount, 1000 −amount, 2000 net 0 in both modes. The spec logs which mode the bill got.
  *
- * Tenant config is only READ: the personas track inventory by persona definition. beforeAll fails loudly — never
- * skips, never toggles — when trackInventory is off, naming the seed step. Fixtures are tagged, dated today (UTC),
- * created and unwound by the test; seeded data is never touched.
+ * Precondition: trackInventory is ON for alex, maya and sydney. The controller enables it once, through the app's own
+ * tenant-config API signed in AS each persona (the same way GST registration is set) —
+ *   PUT /api/v1/agentbook-core/tenant-config  { "trackInventory": true }
+ * The spec itself only READS tenant config: beforeAll fails loudly — never skips, never toggles — when the flag is
+ * off, naming that step. Fixtures are tagged, dated today (UTC), created and unwound by the test; seeded data is
+ * never touched.
  */
 test.describe.configure({ mode: 'serial' });
 
 const EXPENSE = '/api/v1/agentbook-expense';
 const INV = `${EXPENSE}/inventory`;
 const CORE = '/api/v1/agentbook-core';
-const SEED = 'npx tsx agentbook/seed-persona-inventory.ts --apply';
+const ENABLE = 'sign in as the persona and PUT /api/v1/agentbook-core/tenant-config {"trackInventory":true}';
 const TOUCHED = ['1000', '1500', '2000', '5995'] as const;
 
 interface Tb { balanced: boolean; byCode: Record<string, number> }
@@ -70,7 +73,7 @@ for (const persona of ['alex', 'maya', 'sydney'] as Persona[]) {
       ctx = { context, page, t };
       const cfg = await api(page).get(`${CORE}/tenant-config`);
       expectOk(cfg, 'tenant config');
-      expect(cfg.data.data.trackInventory, `${persona} must track inventory (persona definition). Run: ${SEED}`).toBe(true);
+      expect(cfg.data.data.trackInventory, `${persona} must track inventory (precondition). Enable it: ${ENABLE}`).toBe(true);
       baseline = await trialBalance(page);
     });
 

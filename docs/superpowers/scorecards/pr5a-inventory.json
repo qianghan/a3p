@@ -7,7 +7,7 @@
       "covers": [
         "R-INV-1"
       ],
-      "text": "Accounts 1500 Inventory, 3900 Opening Balance Equity, 5990 COGS (US/CA) and 5995 Shrinkage are seeded in every chart pack (codes verified free); resolveAccountByRole maps inventory/cogs/shrinkage/opening_equity per jurisdiction (AU/UK cogs = existing 5000); taxCategory maps to Schedule C line 4 / T2125 8518 / ITR cost of sales / SA103; AU P8 closing stock reads the 1500 year-end balance and cost of sales is net of 5000+5995.",
+      "text": "Accounts 1500 Inventory, 3900 Opening Balance Equity, 5990 COGS (US/CA) and 5995 Shrinkage are seeded in every chart pack (codes verified free); resolveAccountByRole maps inventory/cogs/shrinkage/opening_equity per jurisdiction (AU/UK cogs = existing 5000); taxCategory maps to Schedule C line 4 / T2125 8518 / ITR cost of sales / SA103; AU P8 closing stock reads the 1500 year-end balance and cost of sales is net of 5000+5995. Closing stock reads the jurisdiction's income-year end in UTC (AU 30 Jun; US/CA 31 Dec). Owner-call O3 deviation: UK runs on the US chart (5000 = Advertising) so COGS is 5990 until a UK pack exists.",
       "tests": [
         "apps/web-next/src/lib/__tests__/inventory.test.ts",
         "apps/web-next/src/lib/__tests__/agentbook-cash-accounts.test.ts",
@@ -20,7 +20,7 @@
       "covers": [
         "R-INV-1"
       ],
-      "text": "Fake-ledger golden values: a bill line with itemId debits 1500 (never an expense) and adds qty/value (at_entry at entry, at_payment at payment; voids reverse exactly); WAC buy 10@$5 + 10@$7, relieve 5 -> $30 with 1500 always equal to the sub-ledger; value exactly 0 at qty 0 (333/334/333); negative stock then a purchase posts a stock_adjust true-up; opening stock balances to 3900; closed period -> 422 with nothing written; replay and a P2002 on the movement key -> one movement.",
+      "text": "Fake-ledger golden values: a bill line with itemId debits 1500 (never an expense) and adds qty/value (at_entry at entry, at_payment at payment; voids reverse exactly); WAC buy 10@$5 + 10@$7, relieve 5 -> $30 with 1500 always equal to the sub-ledger; value exactly 0 at qty 0 (333/334/333); negative stock then a purchase posts a stock_adjust true-up; opening stock balances to 3900; closed period -> 422 with nothing written; replay and a P2002 on the movement key -> one movement. Recoverable tax is netted out of stock value on both posting modes (2100 holds it); a negative adjustment cannot remove more value than is on hand; replays compare value.",
       "tests": [
         "apps/web-next/src/lib/__tests__/inventory.test.ts",
         "apps/web-next/src/lib/__tests__/purchases.test.ts"
@@ -31,11 +31,13 @@
       "covers": [
         "R-INV-1"
       ],
-      "text": "Tenant-scoped {success,data} routes: items CRUD (409 duplicate_sku, cross-tenant ids 404, soft delete keeps movements), opening stock DR 1500 | CR 3900, adjust to 5995 at average cost with Idempotency-Key replay, movement ledger, low-stock list; bills accept itemId/qty on both posting modes and refuse a foreign item; writes need trackInventory (the flag, not businessType), toggled in Business Profile.",
+      "text": "Tenant-scoped {success,data} routes: items CRUD (409 duplicate_sku, cross-tenant ids 404, soft delete keeps movements), opening stock DR 1500 | CR 3900, adjust to 5995 at average cost with Idempotency-Key replay, movement ledger, low-stock list; bills accept itemId/qty on both posting modes and refuse a foreign item; writes need trackInventory (the flag, not businessType), toggled in Business Profile and offered only to the merchant/retail business types; inventory-role accounts never appear in expense pickers or auto-categorise suggestions.",
       "tests": [
         "apps/web-next/src/__tests__/api/v1/agentbook-expense/inventory-routes.test.ts",
         "apps/web-next/src/__tests__/api/v1/agentbook-core/tenant-config-route.test.ts",
-        "apps/web-next/src/__tests__/components/settings/inventory-toggle.test.tsx"
+        "apps/web-next/src/__tests__/components/settings/inventory-toggle.test.tsx",
+        "apps/web-next/src/app/api/v1/agentbook-core/accounts/__tests__/route.test.ts",
+        "apps/web-next/src/__tests__/lib/agentbook-suggest-category.test.ts"
       ]
     },
     {
