@@ -58,6 +58,7 @@ interface TenantConfig {
   abn: string | null;
   gstRegistered: boolean | null;
   qstRegistered?: boolean | null;
+  trackInventory?: boolean;
   gstReportingBasis?: 'accrual' | 'cash' | null;
   logoUrl: string | null;
   brandColor: string;
@@ -98,6 +99,16 @@ const BUSINESS_TYPE_OPTIONS = [
   { value: 'startup', labelKey: 'common.persona_startup' },
   { value: 'student', labelKey: 'common.persona_student' },
 ];
+
+/**
+ * Business descriptions that sell goods: the inventory toggle is suggested
+ * to them. It is OFFERED to every non-student business, and the gate is the
+ * trackInventory flag itself, never businessType alone (spec §5.4).
+ */
+const RETAIL_HINT = /\b(retail|merchant|shop|store|e-?commerce|wholesale|resell|products?|goods|inventory|stock)\b/i;
+function suggestsInventory(cfg: Pick<TenantConfig, 'businessDescription' | 'businessTags'>): boolean {
+  return RETAIL_HINT.test(cfg.businessDescription ?? '') || (cfg.businessTags ?? []).some((tag) => RETAIL_HINT.test(tag));
+}
 
 const DEGREE_OPTIONS = [
   { value: '', label: 'Select…' },
@@ -2189,6 +2200,22 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   </select>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {form.qstRegistered === true ? t('core_ui.qst_help_registered') : t('core_ui.qst_help_other')}
+                  </p>
+                </div>
+              )}
+              {form.businessType !== 'student' && (
+                <div data-testid="inventory-toggle">
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <input
+                      type="checkbox"
+                      data-testid="inventory-toggle-input"
+                      checked={form.trackInventory === true}
+                      onChange={(e) => set({ trackInventory: e.target.checked })}
+                    />
+                    {t('core_ui.track_inventory')}
+                  </label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {suggestsInventory(form) && !form.trackInventory ? t('core_ui.track_inventory_suggested') : t('core_ui.track_inventory_help')}
                   </p>
                 </div>
               )}

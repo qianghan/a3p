@@ -729,6 +729,12 @@ CREATE_INVOICE_TRIGGER_PATTERN],
       // which is the generic "someone paid me an amount" handler; keep this
       // skill authoritative once an invoice/mark-paid signal is present.
       '^(?!.*(?:\\binvoice\\b|\\bmark\\b)).*(?:\\bgot paid\\b|received.*payment)',
+      // A sentence that STARTS "(I) paid a/an/the ... invoice" is the user
+      // paying someone else's invoice (an expense), not a client paying
+      // theirs. Previously resolved only by array order (record-expense is
+      // declared first); adding query-stock (PR 5A) reshuffled the
+      // order-independence check and surfaced it.
+      '^\\s*(?:i\\s+)?(?:just\\s+)?paid\\s+(?:an?|the)\\b.*\\binvoice\\b',
     ],
     parameters: {
       invoiceRef: { type: 'string', description: 'Invoice number like INV-2026-0004, or partial like "0004"', required: false },
@@ -907,6 +913,16 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     triggerPatterns: ['roommate', 'find.*roommate', 'compatible.*(student|roommate)', 'match.*roommate'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-housing/roommate/matches' },
+  },
+  {
+    // PR 5A: stock on hand + low-stock alert. Gated on trackInventory (the
+    // handler says how to turn it on); never on businessType.
+    name: 'query-stock',
+    description: 'Answer inventory questions — stock on hand, quantity and value per item, total stock value, which items are low on stock.',
+    category: 'bookkeeping',
+    triggerPatterns: ['stock on hand', 'in stock', 'low stock', 'low on stock', 'inventory', 'stock level', 'how many .* (left|in stock)', 'reorder'],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
   },
   {
     name: 'general-question', description: 'Answer any general financial or accounting question', category: 'finance',

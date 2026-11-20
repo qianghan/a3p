@@ -404,5 +404,8 @@
   "process": "处理",
   "delete_draft": "删除草稿",
   "pay_date_on": "发薪日 {date}",
-  "pay_date_is_a_weekend": "发薪日是周末——法定报表使用此日期。"
+  "pay_date_is_a_weekend": "发薪日是周末——法定报表使用此日期。",
+  "track_inventory": "跟踪库存",
+  "track_inventory_help": "记录您买卖的库存。账单上带商品的采购计入存货（1500），而不是费用。",
+  "track_inventory_suggested": "您的业务销售商品——开启后可跟踪库存数量和价值。"
 }

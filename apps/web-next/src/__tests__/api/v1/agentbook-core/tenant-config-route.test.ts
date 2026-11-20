@@ -308,6 +308,19 @@ describe('registration flags (PR 2b.4)', () => {
     }
   });
 
+  it('stores trackInventory true / false and rejects a non-boolean (PR 5A)', async () => {
+    for (const v of [true, false]) {
+      configUpsert.mockClear();
+      const { res, update } = await stored({ trackInventory: v });
+      expect(res.status).toBe(200);
+      expect(update?.trackInventory).toBe(v);
+    }
+    configUpsert.mockClear();
+    const res = await PUT(putReq({ trackInventory: 'yes' }));
+    expect(res.status).toBe(400);
+    expect(configUpsert).not.toHaveBeenCalled();
+  });
+
   it('writes against the resolved tenant only', async () => {
     await PUT(putReq({ qstRegistered: true }));
     const call = configUpsert.mock.calls[0][0] as { where: { userId: string } };

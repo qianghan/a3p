@@ -12,5 +12,6 @@
   "projects": "项目",
   "time": "工时",
   "recurring": "周期性",
-  "gst_bas_return": "GST/BAS 申报"
+  "gst_bas_return": "GST/BAS 申报",
+  "items": "库存商品"
 }
