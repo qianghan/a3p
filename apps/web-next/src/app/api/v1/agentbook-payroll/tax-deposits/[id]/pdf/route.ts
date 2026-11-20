@@ -34,7 +34,7 @@ function quarterRange(periodLabel: string): { start: Date; end: Date } | null {
   const year = parseInt(m[1], 10);
   const q = parseInt(m[2], 10);
   const startMonth = (q - 1) * 3;
-  return { start: new Date(year, startMonth, 1), end: new Date(year, startMonth + 3, 1) };
+  return { start: new Date(Date.UTC(year, startMonth, 1)), end: new Date(Date.UTC(year, startMonth + 3, 1)) };
 }
 
 /** Parse "YYYY" (940) into that calendar year's [start, end) date range. */
@@ -42,7 +42,7 @@ function yearRange(periodLabel: string): { start: Date; end: Date } | null {
   const m = periodLabel.match(/^(\d{4})$/);
   if (!m) return null;
   const year = parseInt(m[1], 10);
-  return { start: new Date(year, 0, 1), end: new Date(year + 1, 0, 1) };
+  return { start: new Date(Date.UTC(year, 0, 1)), end: new Date(Date.UTC(year + 1, 0, 1)) };
 }
 
 export async function GET(request: NextRequest, ctx: RouteCtx): Promise<Response> {

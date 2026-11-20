@@ -22,6 +22,16 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+/** Most recent run by statutory date: newest dated run vs newest legacy (null payDate) run. */
+async function latestByPayDate(tenantId: string) {
+  const [dated, legacy] = await Promise.all([
+    db.abPayRun.findFirst({ where: { tenantId, payDate: { not: null } }, orderBy: { payDate: 'desc' } }),
+    db.abPayRun.findFirst({ where: { tenantId, payDate: null }, orderBy: { periodEnd: 'desc' } }),
+  ]);
+  if (!dated || !legacy) return dated ?? legacy;
+  return statutoryPayDate(dated) >= statutoryPayDate(legacy) ? dated : legacy;
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const __resolved = await safeResolveAgentbookTenant(request);
@@ -36,11 +46,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Target pay run: the one requested, else the most recent by period end.
+    // Target pay run: the one requested, else the most recent by pay date (payDate ?? periodEnd).
     const payRunId = request.nextUrl.searchParams.get('payRunId');
     const target = payRunId
       ? await db.abPayRun.findFirst({ where: { id: payRunId, tenantId } })
-      : await db.abPayRun.findFirst({ where: { tenantId }, orderBy: { periodEnd: 'desc' } });
+      : await latestByPayDate(tenantId);
     if (!target) {
       return NextResponse.json({ success: false, error: { code: 'no_pay_run', message: 'No pay run found to report.' } }, { status: 404 });
     }

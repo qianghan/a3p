@@ -16,8 +16,9 @@ import { api } from '../nightly/helpers/api';
  *
  * Here each persona's report endpoints are recomputed from its own pay-run list by statutory date and must agree:
  * year-end forms (paid runs, per UTC year) for every market; BAS W1/W2 per quarter (all runs, as the route reads
- * them) and the STP pay event's FY/payDate for the AU tenant. The test records how many runs actually have a pay
- * date that differs from the period end, so a report shows whether the boundary was exercised on live data.
+ * them) and the STP pay event's FY/payDate for the AU tenant. The count of runs whose pay date differs from the
+ * period end is logged and attached per persona; every report endpoint must also declare its pay-date basis
+ * (year-end/STP reportingBasis, BAS wagesBasis), so with zero shifted runs a periodEnd-only build still fails.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -41,6 +42,7 @@ for (const m of MARKETS) {
     let context: BrowserContext | undefined;
     let page: Page;
     let runs: Run[] = [];
+    let shifted = 0;
 
     test.beforeAll(async ({ browser }, testInfo) => {
       const reason = loginUnavailableReason(testInfo.project.use.baseURL);
@@ -52,8 +54,10 @@ for (const m of MARKETS) {
       const res = await api(page).get(`${PAYROLL}/pay-runs`);
       expect(res.status, 'list pay runs').toBe(200);
       runs = (res.data as { data: Run[] }).data;
-      const shifted = runs.filter((r) => r.payDate && iso(new Date(r.payDate)) !== iso(new Date(r.periodEnd))).length;
-      testInfo.annotations.push({ type: 'paydate-shifted-runs', description: `${shifted} of ${runs.length}` });
+      shifted = runs.filter((r) => r.payDate && iso(new Date(r.payDate)) !== iso(new Date(r.periodEnd))).length;
+      // Logged + attached so a report shows whether live data exercised payDate != periodEnd at all.
+      console.log(`[paydate] ${m.persona}: ${shifted} of ${runs.length} runs have payDate != periodEnd`);
+      testInfo.annotations.push({ type: 'paydate-shifted-runs', description: `${m.persona}: ${shifted} of ${runs.length}` });
     });
     test.afterAll(async () => { await context?.close(); });
 
@@ -65,7 +69,11 @@ for (const m of MARKETS) {
       for (const year of years) {
         const res = await api(page).get(`${PAYROLL}/year-end?year=${year}`);
         expect(res.status, `year-end ${year}`).toBe(200);
-        const got = ((res.data as { data: { forms: Array<{ employeeId?: string }> } }).data.forms)
+        const body = (res.data as { data: { forms: Array<{ employeeId?: string }>; reportingBasis?: string } }).data;
+        // Always states its basis; when no live run has payDate != periodEnd the totals can't tell the builds
+        // apart, so this metadata is what makes a periodEnd-only build fail here.
+        expect(body.reportingBasis, shifted === 0 ? 'no shifted runs: the pay-date basis must be declared' : 'basis').toBe('pay_date');
+        const got = body.forms
           .map((f) => f.employeeId).filter(Boolean).sort();
         const want = [...new Set(runs
           .filter((r) => r.status === 'paid' && statutory(r).getUTCFullYear() === year)

@@ -32,8 +32,8 @@ export async function GET(request: NextRequest): Promise<Response> {
     if (!employeeId) {
       return NextResponse.json({ success: false, error: 'employeeId required' }, { status: 400 });
     }
-    const yearStart = new Date(year, 0, 1);
-    const yearEnd = new Date(year + 1, 0, 1);
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
 
     const [cfg, employee] = await Promise.all([
       db.abTenantConfig.findUnique({ where: { userId: tenantId } }),

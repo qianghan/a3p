@@ -5,7 +5,7 @@
     {
       "id": "G1-statutory-buckets",
       "covers": ["R-EMP-4"],
-      "text": "STP (FY + YTD window), BAS W1/W2, year-end forms and PDF, the 941/940 deposit PDF and the deposit period accrued on processing all bucket by payDate ?? periodEnd (legacy null payDate keeps periodEnd); a fixture crossing a BAS quarter (30 Sep paid 3 Oct; 30 Jun paid 2 Jul) and a year (31 Dec paid 2 Jan) asserts each consumer's computed bucket through a where-applying DB mock; the journal entry stays dated periodEnd; re-processing a processed run is refused and its amounts never change, only its bucket.",
+      "text": "Boundary behaviour is proven by the unit fixture; the prod e2e proves report/recompute consistency and the declared pay-date basis. STP (FY + YTD window, default target = latest by pay date), BAS W1/W2, year-end forms and PDF, the 941/940 deposit PDF and the deposit period accrued on processing all bucket by payDate ?? periodEnd (legacy null payDate keeps periodEnd); a fixture crossing a BAS quarter (30 Sep paid 3 Oct; 30 Jun paid 2 Jul) and a year (31 Dec paid 2 Jan) asserts each consumer's computed bucket through a where-applying DB mock; the journal entry stays dated periodEnd; re-processing a processed run is refused and its amounts never change, only its bucket; quarter/year math is UTC (1 Jan and 31 Mar/1 Apr cases pass under TZ=America/Los_Angeles).",
       "tests": [
         "apps/web-next/src/__tests__/api/v1/agentbook-payroll/paydate-statutory-buckets.test.ts",
         "apps/web-next/src/__tests__/api/v1/agentbook-payroll/au-stp-route.test.ts",

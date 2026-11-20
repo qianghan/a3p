@@ -22,8 +22,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { tenantId } = __resolved;
 
     const year = parseInt(request.nextUrl.searchParams.get('year') || String(new Date().getFullYear()), 10);
-    const yearStart = new Date(year, 0, 1);
-    const yearEnd = new Date(year + 1, 0, 1);
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
 
     const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const jurisdiction = cfg?.jurisdiction || 'us';
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       })
       .filter((f): f is NonNullable<typeof f> => f !== null);
 
-    return NextResponse.json({ success: true, data: { year, forms } });
+    return NextResponse.json({ success: true, data: { year, forms, reportingBasis: 'pay_date' } });
   } catch (err) {
     console.error('[agentbook-payroll/year-end] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
