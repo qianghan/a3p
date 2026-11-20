@@ -164,3 +164,9 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/naap" DATABASE_URL_U
 - Internal-only `periodEnd` readers stay: pay-run list ordering, STP target selection (latest by period end), chat "last run" summary, the dashboard list.
 - Footers: `core_ui.payroll_reports_use_pay_date` (payroll Tax deposits / Year-end / STP tabs) and `tax_ui.return_wages_by_pay_date` (BAS when W1/W2 show).
 - Tests: `paydate-statutory-buckets.test.ts` (quarter + year boundary fixture, where-applying DB mock, processed-run snapshot), prod e2e `tests/e2e/mobile-app/paydate.spec.ts` (read-only: pay runs can't be deleted and processing merges into shared deposit rows).
+
+### Employee profile UI, pay frequency, draft pay runs (PR 4c)
+- Profile screen: `apps/web-next/src/app/(dashboard)/payroll/employees/[id]/employee-detail.tsx` (route `/payroll/employees/<id>`, linked from the payroll list). Sections by market; sensitive inputs start empty (masked last4 is the placeholder) and blank/masked echoes are never sent; a 503 `pii_key_unconfigured` disables them and re-sends the rest.
+- Frequency labels: `frequencyLabelKey(freq, jurisdiction, ns)` in `lib/payroll-frequency.ts` — AU biweekly → `fortnightly`, else `bi_weekly`; keys live in `core_ui` (web) and `agent` (chat replies via `replyT`). Stored values never change.
+- Drafts: `POST pay-runs {generate:'drafts', asOf?, employeeIds?}` → one draft per frequency group (weekly/biweekly also by anchor) from `payAnchorDate` (fallback `startDate`), with `payDate` (= period end) and `payFrequency`; idempotent per group+period. Period math is `payPeriodFor()` (UTC, date-only). Stubs use the current rate, so rate edits hit the next draft only. `DELETE pay-runs/[id]` removes drafts only (409 otherwise).
+- Tests: `payroll-frequency.test.ts`, `pay-runs-drafts-route.test.ts`, `payroll-employee-detail.test.tsx`, `payroll-page-frequency-drafts.test.tsx`; prod e2e `tests/e2e/mobile-app/employee-ui.spec.ts`.

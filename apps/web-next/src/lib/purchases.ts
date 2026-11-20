@@ -26,6 +26,7 @@
  * Legacy rule: a legacy at_payment bill can be status 'paid' with paidCents 0.
  * Status is authoritative for "paid"; never derive it from paidCents there.
  */
+import { serializableTx as sharedSerializableTx } from './serializable-tx';
 import 'server-only';
 import { PublicError } from '@/lib/api-error';
 import { createHash, randomUUID } from 'node:crypto';
@@ -105,26 +106,11 @@ function periodError(err: unknown): never {
 
 class StaleWrite {}
 
-export const SERIALIZATION_ATTEMPTS = 3;
-const isSerializationFailure = (e: unknown) => (e as { code?: string })?.code === 'P2034';
+export { SERIALIZATION_ATTEMPTS } from './serializable-tx';
 
-/**
- * A Serializable transaction, retried (bounded, jittered) when Postgres
- * aborts it for a serialization conflict (Prisma P2034). Exhaustion is a
- * retryable 409, never a 500.
- */
-async function serializableTx<T>(db: PurchasesDb, fn: (tx: PurchasesDb) => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await db.$transaction(fn, { isolationLevel: 'Serializable' });
-    } catch (err) {
-      if (!isSerializationFailure(err)) throw err;
-      if (attempt >= SERIALIZATION_ATTEMPTS) {
-        throw new PurchaseError(409, 'concurrent_update', 'The bill changed while saving; please retry');
-      }
-      await new Promise((r) => setTimeout(r, Math.floor(Math.random() * 20 * attempt)));
-    }
-  }
+/** Bills' Serializable + bounded P2034 retry; exhaustion is a 409 concurrent_update. */
+function serializableTx<T>(db: PurchasesDb, fn: (tx: PurchasesDb) => Promise<T>): Promise<T> {
+  return sharedSerializableTx(db as never, fn as never, () => new PurchaseError(409, 'concurrent_update', 'The bill changed while saving; please retry')) as Promise<T>;
 }
 
 /* ----------------------------------------------------------------- accounts */

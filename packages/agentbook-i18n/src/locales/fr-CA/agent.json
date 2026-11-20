@@ -6,5 +6,10 @@
   "unknown_intent": "Je ne suis pas sûr de comprendre. Essayez « Dépensé 45 $ pour le déjeuner » ou « Combien en voyages ? »",
   "nothing_to_confirm": "Rien n'attend votre confirmation pour le moment. Dites-moi ce que vous voulez faire.",
   "nothing_to_cancel": "Rien à annuler — aucune action n'est en cours.",
-  "nothing_pending": "Aucune action n'est en cours pour le moment."
+  "nothing_pending": "Aucune action n'est en cours pour le moment.",
+  "weekly": "Hebdomadaire",
+  "bi_weekly": "Aux deux semaines",
+  "fortnightly": "Aux deux semaines (quinzaine)",
+  "semi_monthly": "Bimensuel",
+  "monthly": "Mensuel"
 }

@@ -6,5 +6,10 @@
   "unknown_intent": "I'm not sure what you mean. Try \"Spent $45 on lunch\" or \"How much on travel?\"",
   "nothing_to_confirm": "Nothing is waiting for your confirmation right now. Tell me what you'd like to do.",
   "nothing_to_cancel": "Nothing to cancel — there's no action in progress.",
-  "nothing_pending": "There's no action in progress right now."
+  "nothing_pending": "There's no action in progress right now.",
+  "weekly": "Weekly",
+  "bi_weekly": "Bi-weekly",
+  "fortnightly": "Fortnightly",
+  "semi_monthly": "Semi-monthly",
+  "monthly": "Monthly"
 }
