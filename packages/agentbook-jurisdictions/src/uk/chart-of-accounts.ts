@@ -8,6 +8,8 @@ const SA_ACCOUNTS: Account[] = [
   { code: '1200', name: 'Business Current Account', type: 'asset' },
   { code: '1300', name: 'Business Savings Account', type: 'asset' },
   // Liabilities
+  // Inventory (PR 5A): trading stock at weighted-average cost.
+  { code: '1500', name: 'Inventory', type: 'asset' },
   { code: '2000', name: 'Accounts Payable', type: 'liability' },
   { code: '2100', name: 'VAT Payable', type: 'liability' },
   { code: '2200', name: 'PAYE/NI Payable', type: 'liability' },
@@ -15,6 +17,7 @@ const SA_ACCOUNTS: Account[] = [
   // Equity
   { code: '3000', name: "Owner's Equity", type: 'equity' },
   { code: '3100', name: "Owner's Drawings", type: 'equity' },
+  { code: '3900', name: 'Opening Balance Equity', type: 'equity' },
   // Revenue
   { code: '4000', name: 'Sales/Turnover', type: 'revenue', taxCategory: 'SA103 - Turnover' },
   { code: '4100', name: 'Other Business Income', type: 'revenue', taxCategory: 'SA103 - Other income' },
@@ -29,6 +32,7 @@ const SA_ACCOUNTS: Account[] = [
   { code: '5700', name: 'Advertising & Marketing', type: 'expense', taxCategory: 'SA103 - Advertising' },
   { code: '5800', name: 'Interest & Bank Charges', type: 'expense', taxCategory: 'SA103 - Interest' },
   { code: '5900', name: 'Accountancy & Legal Fees', type: 'expense', taxCategory: 'SA103 - Legal and professional' },
+  { code: '5995', name: 'Inventory Shrinkage', type: 'expense', taxCategory: 'SA103 - Cost of goods' },
   { code: '6000', name: 'Phone, Fax, Stationery', type: 'expense', taxCategory: 'SA103 - Phone and stationery' },
   { code: '6100', name: 'Other Business Expenses', type: 'expense', taxCategory: 'SA103 - Other expenses' },
   { code: '6200', name: 'Capital Allowances', type: 'expense', taxCategory: 'SA103 - Capital allowances' },

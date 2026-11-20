@@ -8,6 +8,8 @@ const T2125_ACCOUNTS: Account[] = [
   { code: '1200', name: 'Business Chequing', type: 'asset' },
   { code: '1300', name: 'Business Savings', type: 'asset' },
   // Liabilities
+  // Inventory (PR 5A): trading stock at weighted-average cost.
+  { code: '1500', name: 'Inventory', type: 'asset' },
   { code: '2000', name: 'Accounts Payable', type: 'liability' },
   { code: '2100', name: 'GST/HST Payable', type: 'liability' },
   { code: '2200', name: 'PST/QST Payable', type: 'liability' },
@@ -15,6 +17,7 @@ const T2125_ACCOUNTS: Account[] = [
   // Equity
   { code: '3000', name: "Owner's Equity", type: 'equity' },
   { code: '3100', name: "Owner's Drawings", type: 'equity' },
+  { code: '3900', name: 'Opening Balance Equity', type: 'equity' },
   // Revenue
   { code: '4000', name: 'Professional Income', type: 'revenue', taxCategory: 'Line 8000 - Professional income' },
   { code: '4100', name: 'Sales Revenue', type: 'revenue', taxCategory: 'Line 8000 - Professional income' },
@@ -30,6 +33,8 @@ const T2125_ACCOUNTS: Account[] = [
   { code: '5700', name: 'Insurance', type: 'expense', taxCategory: 'Line 8690 - Insurance' },
   { code: '5800', name: 'Interest & Bank Charges', type: 'expense', taxCategory: 'Line 8710 - Interest and bank charges' },
   { code: '5900', name: 'Professional Fees', type: 'expense', taxCategory: 'Line 8860 - Professional fees' },
+  { code: '5990', name: 'Cost of Goods Sold', type: 'expense', taxCategory: 'Line 8518 - Cost of goods sold (Part 3)' },
+  { code: '5995', name: 'Inventory Shrinkage', type: 'expense', taxCategory: 'Line 8518 - Cost of goods sold (Part 3)' },
   { code: '6000', name: 'Utilities', type: 'expense', taxCategory: 'Line 8945 - Utilities' },
   { code: '6100', name: 'Telephone & Internet', type: 'expense', taxCategory: 'Line 8220 - Telephone and internet' },
   { code: '6200', name: 'Capital Cost Allowance', type: 'expense', taxCategory: 'Line 9936 - Capital cost allowance' },

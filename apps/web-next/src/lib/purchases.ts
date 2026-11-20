@@ -41,6 +41,10 @@ import { resolveExpenseTax, isMealsAccount } from '@/lib/expense-tax';
 import { TaxCodeError } from '@/lib/tax-codes';
 import { ensureChartOfAccounts, ensureUncategorizedAccount, CASH_CODE } from '@/lib/agentbook-chart-of-accounts';
 import { suggestCategory } from '@/lib/agentbook-suggest-category';
+import {
+  assertInventoryEnabled, loadItem, resolveAccountByRole, recordPurchaseMovement, reversePurchaseMovement,
+  toUnits, unitsToNumber, InventoryError,
+} from '@/lib/inventory';
 
 export const AP_CODE = '2000';
 export const RECOVERABLE_TAX_CODE = '2100';
@@ -73,6 +77,13 @@ export interface BillLineInput {
   /** Tax code; null = explicitly untyped; undefined = vendor/tenant default. */
   taxCode?: string | null;
   printedTaxCents?: number | null;
+  /**
+   * Inventory item (PR 5A). The line then debits 1500 Inventory, not an
+   * expense, and adds `qty` at the line's net cost. Requires trackInventory.
+   */
+  itemId?: string | null;
+  /** Quantity bought (default 1). Up to 4 decimals. */
+  qty?: number | null;
 }
 
 export interface BillInput {
@@ -138,6 +149,15 @@ interface ResolvedLine {
   taxCode: string | null;
   taxCents: number;
   recoverableTaxCents: number;
+  itemId: string | null;
+  qty: number;
+  unitCostCents: number;
+}
+
+/** Map an inventory refusal onto the purchases error type the routes already handle. */
+function inventoryError(err: unknown): never {
+  if (err instanceof InventoryError) throw new PurchaseError(err.status, err.code, err.message);
+  throw err;
 }
 
 async function resolveLines(db: PurchasesDb, tenantId: string, cfg: Row | null, input: Pick<BillInput, 'vendorName' | 'lines'>, vendorDefaultTaxCode: string | null): Promise<ResolvedLine[]> {
@@ -146,7 +166,20 @@ async function resolveLines(db: PurchasesDb, tenantId: string, cfg: Row | null, 
   for (const l of input.lines) {
     if (!intCents(l.amountCents) || l.amountCents <= 0) throw new PurchaseError(400, 'invalid_amount');
     let account: Row | null = null;
-    if (l.categoryId) {
+    let qty = 1;
+    if (l.itemId) {
+      // Tenant-scoped (no FK on itemId): a foreign or deleted item is a 404.
+      await assertInventoryEnabled(db, tenantId).catch(inventoryError);
+      await loadItem(db, tenantId, l.itemId).catch(inventoryError);
+      try {
+        const units = toUnits(l.qty ?? 1);
+        if (units <= 0) throw new PurchaseError(400, 'invalid_qty');
+        qty = unitsToNumber(units);
+      } catch (err) {
+        inventoryError(err);
+      }
+      account = await resolveAccountByRole(db, tenantId, 'inventory').catch(inventoryError);
+    } else if (l.categoryId) {
       account = await db.abAccount.findFirst({ where: { id: l.categoryId, tenantId, accountType: 'expense', isActive: true } });
       if (!account) throw new PurchaseError(422, 'invalid_category');
     } else {
@@ -175,6 +208,9 @@ async function resolveLines(db: PurchasesDb, tenantId: string, cfg: Row | null, 
       taxCode: tax.taxCode,
       taxCents: tax.taxAmountCents ?? 0,
       recoverableTaxCents: tax.recoverableTaxCents,
+      itemId: l.itemId ?? null,
+      qty,
+      unitCostCents: Math.round(l.amountCents / qty),
     });
   }
   return out;
@@ -281,13 +317,22 @@ export async function postBill(db: PurchasesDb, tenantId: string, rawInput: Bill
           receiptUrl: input.receiptUrl ?? null, deletedAt: null, journalEntryId: null, paidDate: null,
         },
       });
-      for (const l of lines) await tx.abBillLine.create({ data: { billId: id, tenantId, ...l, qty: 1, unitCostCents: l.amountCents } });
+      const created: Row[] = [];
+      for (const l of lines) created.push(await tx.abBillLine.create({ data: { billId: id, tenantId, ...l } }));
       let journalEntryId: string | null = null;
       if (ledger) {
         await assertPeriodOpen(tx, tenantId, input.billDate);
         journalEntryId = await appendBalancedEntry(tx, tenantId, {
           date: input.billDate, memo: `Bill: ${input.vendorName}`, sourceType: 'bill', sourceId: id,
         }, ledger);
+        // at_entry: stock arrives with the bill, at its net (recoverable tax excluded) cost.
+        for (const row of created) {
+          if (!row.itemId) continue;
+          await recordPurchaseMovement(tx, tenantId, {
+            itemId: row.itemId, billLineId: row.id, qty: row.qty, valueCents: row.amountCents - row.recoverableTaxCents,
+            date: input.billDate, journalEntryId,
+          });
+        }
       }
       return tx.abBill.update({ where: { id }, data: { journalEntryId } });
     });
@@ -344,13 +389,24 @@ export async function payBill(db: PurchasesDb, tenantId: string, billId: string,
 
     let lines: LedgerLine[];
     let sourceType: string;
+    // at_payment bills with inventory lines: stock arrives when the bill is paid.
+    const itemLines: Row[] = atPayment
+      ? ((await db.abBillLine.findMany({ where: { billId, tenantId } })) as Row[] || []).filter((l) => l.itemId)
+      : [];
     if (atPayment) {
-      const expense = bill.categoryCode ? await accountByCode(db, tenantId, bill.categoryCode) : await suspenseAccount(tenantId);
       const cash = await accountByCode(db, tenantId, CASH_CODE);
-      lines = [
-        { accountId: expense.id, debitCents: amount, creditCents: 0, description: bill.description || bill.vendorName },
-        { accountId: cash.id, debitCents: 0, creditCents: amount, description: `Payment: ${bill.vendorName}` },
-      ];
+      const itemCents = itemLines.reduce((s, l) => s + l.amountCents, 0);
+      if (itemCents > amount) throw new PurchaseError(422, 'bill_lines_exceed_total');
+      lines = [];
+      if (itemCents > 0) {
+        const inv = await resolveAccountByRole(db, tenantId, 'inventory').catch(inventoryError);
+        lines.push({ accountId: inv.id, debitCents: itemCents, creditCents: 0, description: `Inventory: ${bill.vendorName}` });
+      }
+      if (amount - itemCents > 0) {
+        const expense = bill.categoryCode ? await accountByCode(db, tenantId, bill.categoryCode) : await suspenseAccount(tenantId);
+        lines.push({ accountId: expense.id, debitCents: amount - itemCents, creditCents: 0, description: bill.description || bill.vendorName });
+      }
+      lines.push({ accountId: cash.id, debitCents: 0, creditCents: amount, description: `Payment: ${bill.vendorName}` });
       sourceType = 'bill';
     } else {
       const [ap, cash] = [await accountByCode(db, tenantId, AP_CODE), await accountByCode(db, tenantId, CASH_CODE)];
@@ -380,6 +436,9 @@ export async function payBill(db: PurchasesDb, tenantId: string, billId: string,
           date, memo: `Bill payment: ${bill.vendorName}`, sourceType, sourceId: paymentId,
         }, lines);
         const payment = await tx.abBillPayment.update({ where: { id: paymentId }, data: { journalEntryId: entryId } });
+        for (const l of itemLines) {
+          await recordPurchaseMovement(tx, tenantId, { itemId: l.itemId, billLineId: l.id, qty: l.qty, valueCents: l.amountCents, date, journalEntryId: entryId });
+        }
         const updated = atPayment
           ? await tx.abBill.update({ where: { id: billId }, data: { journalEntryId: entryId } })
           : await tx.abBill.findFirst({ where: { id: billId, tenantId } });
@@ -415,9 +474,15 @@ export async function voidPayment(db: PurchasesDb, tenantId: string, paymentId: 
         if (g.count === 0) return new StaleWrite();
         const p = await tx.abBillPayment.updateMany({ where: { id: paymentId, voidedAt: null }, data: { voidedAt: date } });
         if (p.count === 0) throw new PurchaseError(409, 'payment_already_voided');
-        await appendBalancedEntry(tx, tenantId, {
+        const voidEntryId = await appendBalancedEntry(tx, tenantId, {
           date, memo: `Void bill payment: ${bill.vendorName}`, sourceType: 'bill_payment_void', sourceId: paymentId,
         }, lines);
+        // at_payment: the payment brought the stock in, so its void takes it out.
+        if (bill.postingMode !== 'at_entry') {
+          for (const l of (await tx.abBillLine.findMany({ where: { billId: bill.id, tenantId } })) as Row[]) {
+            if (l.itemId) await reversePurchaseMovement(tx, tenantId, { billLineId: l.id, date, journalEntryId: voidEntryId });
+          }
+        }
         return {
           bill: await tx.abBill.findFirst({ where: { id: bill.id, tenantId } }),
           payment: await tx.abBillPayment.findFirst({ where: { id: paymentId } }),
@@ -450,7 +515,10 @@ export async function voidBill(db: PurchasesDb, tenantId: string, billId: string
         });
         if (g.count === 0) return new StaleWrite();
         if (lines) {
-          await appendBalancedEntry(tx, tenantId, { date, memo: `Void bill: ${bill.vendorName}`, sourceType: 'bill_void', sourceId: billId }, lines);
+          const voidEntryId = await appendBalancedEntry(tx, tenantId, { date, memo: `Void bill: ${bill.vendorName}`, sourceType: 'bill_void', sourceId: billId }, lines);
+          for (const l of (await tx.abBillLine.findMany({ where: { billId, tenantId } })) as Row[]) {
+            if (l.itemId) await reversePurchaseMovement(tx, tenantId, { billLineId: l.id, date, journalEntryId: voidEntryId });
+          }
         }
         return { bill: await tx.abBill.findFirst({ where: { id: billId, tenantId } }) };
       });
@@ -470,6 +538,11 @@ export async function amendBill(db: PurchasesDb, tenantId: string, billId: strin
     const bill = await loadBill(db, tenantId, billId);
     if (bill.status !== 'open' || bill.paidCents !== 0) throw new PurchaseError(409, 'bill_not_amendable');
     if (bill.postingMode !== 'at_entry') throw new PurchaseError(409, 'bill_not_at_entry');
+    // Inventory lines are not amendable in v1: void the bill and re-enter it,
+    // so the stock movements reverse and re-post exactly.
+    const hasItems = (input.lines ?? []).some((l) => l.itemId) ||
+      ((await db.abBillLine.findMany({ where: { billId } })) as Row[] || []).some((l) => l.itemId);
+    if (hasItems) throw new PurchaseError(409, 'bill_has_inventory_lines', 'Void the bill and re-enter it to change inventory lines');
     const vendorName = input.vendorName ?? bill.vendorName;
     const billDate = input.billDate ?? bill.billDate ?? bill.createdAt;
     const lines: ResolvedLine[] = input.lines
@@ -477,6 +550,7 @@ export async function amendBill(db: PurchasesDb, tenantId: string, billId: strin
       : ((await db.abBillLine.findMany({ where: { billId } })) as Row[]).map((l) => ({
           description: l.description, categoryId: l.categoryId, amountCents: l.amountCents,
           taxCode: l.taxCode ?? null, taxCents: l.taxCents, recoverableTaxCents: l.recoverableTaxCents,
+          itemId: null, qty: l.qty ?? 1, unitCostCents: l.unitCostCents ?? l.amountCents,
         }));
     const ledger = await entryLines(db, tenantId, lines, vendorName);
     const reversal = bill.journalEntryId ? await mirrorOf(db, bill.journalEntryId) : null;
@@ -510,7 +584,7 @@ export async function amendBill(db: PurchasesDb, tenantId: string, billId: strin
         }, ledger);
         if (input.lines) {
           await tx.abBillLine.deleteMany({ where: { billId } });
-          for (const l of lines) await tx.abBillLine.create({ data: { billId, tenantId, ...l, qty: 1, unitCostCents: l.amountCents } });
+          for (const l of lines) await tx.abBillLine.create({ data: { billId, tenantId, ...l } });
         }
         return { bill: await tx.abBill.update({ where: { id: billId }, data: { journalEntryId: entryId } }) };
       });
