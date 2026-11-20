@@ -39,12 +39,21 @@ export function createFakeLedgerDb() {
       { id: 'acct-suspense', tenantId: 't1', code: '6999', accountType: 'expense', isActive: true },
       { id: 'acct-t2-meals', tenantId: 't2', code: '5200', accountType: 'expense', isActive: true },
       { id: 'acct-ap', tenantId: 't1', code: '2000', accountType: 'liability', isActive: true },
+      // PR 5A — inventory roles (US/CA cogs 5990; AU/UK cogs is the pack's 5000).
+      { id: 'acct-inv', tenantId: 't1', code: '1500', accountType: 'asset', isActive: true },
+      { id: 'acct-ope', tenantId: 't1', code: '3900', accountType: 'equity', isActive: true },
+      { id: 'acct-cogs', tenantId: 't1', code: '5990', accountType: 'expense', isActive: true },
+      { id: 'acct-cogs-5000', tenantId: 't1', code: '5000', accountType: 'expense', isActive: true },
+      { id: 'acct-shrink', tenantId: 't1', code: '5995', accountType: 'expense', isActive: true },
     ] as Row[],
     // PR 3bc — accounts payable documents.
     bills: [] as Row[],
     billLines: [] as Row[],
     billPayments: [] as Row[],
     tenantConfigs: [] as Row[],
+    // PR 5A — inventory sub-ledger.
+    items: [] as Row[],
+    movements: [] as Row[],
     /**
      * Error codes to raise from the next transactions, one per transaction,
      * AFTER the callback ran and rolled back — e.g. 'P2034', how Postgres
@@ -59,7 +68,7 @@ export function createFakeLedgerDb() {
     e ? (include?.lines ? { ...e, lines: state.lines.filter((l) => l.entryId === e.id) } : { ...e }) : null;
 
   /** Generic table over a `state` key: equality/null where, PK uniqueness on id, sorted reads. */
-  const table = (key: 'bills' | 'billLines' | 'billPayments' | 'tenantConfigs', prefix: string) => ({
+  const table = (key: 'bills' | 'billLines' | 'billPayments' | 'tenantConfigs' | 'items' | 'movements', prefix: string, unique?: string[]) => ({
     findFirst: async ({ where, orderBy }: Row = {}) => {
       const rows = state[key].filter((r) => matches(r, where));
       if (orderBy) {
@@ -77,6 +86,10 @@ export function createFakeLedgerDb() {
       const row: Row = { id: data.id ?? nextId(prefix), createdAt: new Date(), ...data };
       if (state[key].some((r) => r.id === row.id)) {
         throw Object.assign(new Error('Unique constraint failed on the fields: (id)'), { code: 'P2002' });
+      }
+      // Postgres: a NULL in any unique column never collides.
+      if (unique && unique.every((f) => row[f] != null) && state[key].some((r) => unique.every((f) => r[f] === row[f]))) {
+        throw Object.assign(new Error(`Unique constraint failed on the fields: (${unique.join(',')})`), { code: 'P2002' });
       }
       state[key].push(row);
       return { ...row };
@@ -104,6 +117,8 @@ export function createFakeLedgerDb() {
     abBillLine: table('billLines', 'bl'),
     abBillPayment: table('billPayments', 'pay'),
     abTenantConfig: table('tenantConfigs', 'cfg'),
+    abInventoryItem: table('items', 'item', ['tenantId', 'sku']),
+    abStockMovement: table('movements', 'mv', ['tenantId', 'sourceType', 'sourceId']),
     abExpense: {
       findFirst: async ({ where }: Row = {}) => {
         const r = state.expenses.find((e) => matches(e, where));
@@ -222,6 +237,8 @@ export function createFakeLedgerDb() {
         bills: copy(state.bills),
         billLines: copy(state.billLines),
         billPayments: copy(state.billPayments),
+        items: copy(state.items),
+        movements: copy(state.movements),
         seq: state.seq,
       };
       try {
@@ -234,6 +251,8 @@ export function createFakeLedgerDb() {
         state.bills = saved.bills;
         state.billLines = saved.billLines;
         state.billPayments = saved.billPayments;
+        state.items = saved.items;
+        state.movements = saved.movements;
         state.seq = saved.seq;
         throw err;
       }

@@ -138,5 +138,13 @@
   "scenario_cash_negative": "Cash would go negative in month {month}.",
   "scenario_client_not_found": "I couldn't find a client named \"{client}\" in your books, so I didn't model that.",
   "scenario_failed": "I couldn't run that scenario. Try \"what if I hire someone at $5K/month?\"",
-  "expense_tax_claimable": "{label} {amount} claimable"
+  "expense_tax_claimable": "{label} {amount} claimable",
+  "stock_not_enabled": "Inventory tracking is off. Turn on “Track inventory” in Settings › Business Profile to track stock.",
+  "stock_no_items": "You don’t have any inventory items yet. Add them on Expenses › Items.",
+  "stock_summary_one": "You have **{count} item** in stock, worth {value}:",
+  "stock_summary_other": "You have **{count} items** in stock, worth {value}:",
+  "stock_item_line": "• {name}: {qty} {unit} ({value})",
+  "stock_low_heading_one": "**{count} item** is at or below its reorder point:",
+  "stock_low_heading_other": "**{count} items** are at or below their reorder point:",
+  "stock_load_failed": "I couldn’t load your inventory. Please try again."
 }

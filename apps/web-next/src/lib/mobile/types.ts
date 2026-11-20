@@ -3,7 +3,7 @@
  * by app/app/_lib/api.ts and the screens, so it must stay dependency-free.
  */
 export type AlertSeverity = 'critical' | 'warn' | 'info';
-export type AlertKind = 'invoice_overdue' | 'tax_deadline' | 'receipts_missing' | 'uncategorized' | 'review_needed' | 'bill_due';
+export type AlertKind = 'invoice_overdue' | 'tax_deadline' | 'receipts_missing' | 'uncategorized' | 'review_needed' | 'bill_due' | 'low_stock';
 export type MobileRoute = '/app' | '/app/docs' | '/app/capture' | '/app/chat' | `/app/docs/${string}`;
 
 export interface MobileAlert {

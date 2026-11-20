@@ -42,6 +42,7 @@ export default function MobileChat() {
       const text =
         topic === 'tax_deadline' ? t('mobile.chat.topic_tax_deadline')
         : topic === 'bill_due' ? t('mobile.chat.topic_bill_due')
+        : topic === 'low_stock' ? t('mobile.chat.topic_low_stock')
         : null;
       if (text) setDraft((d) => d || text);
     } catch {

@@ -7,12 +7,15 @@ const SCHEDULE_C_ACCOUNTS: Account[] = [
   { code: '1200', name: 'Business Checking', type: 'asset' },
   { code: '1300', name: 'Business Savings', type: 'asset' },
   // Liabilities
+  // Inventory (PR 5A): trading stock at weighted-average cost.
+  { code: '1500', name: 'Inventory', type: 'asset' },
   { code: '2000', name: 'Accounts Payable', type: 'liability' },
   { code: '2100', name: 'Sales Tax Payable', type: 'liability' },
   { code: '2200', name: 'Credit Card', type: 'liability' },
   // Equity
   { code: '3000', name: "Owner's Equity", type: 'equity' },
   { code: '3100', name: "Owner's Draw", type: 'equity' },
+  { code: '3900', name: 'Opening Balance Equity', type: 'equity' },
   // Revenue
   { code: '4000', name: 'Service Revenue', type: 'revenue', taxCategory: 'Line 1 - Gross receipts' },
   { code: '4100', name: 'Product Revenue', type: 'revenue', taxCategory: 'Line 1 - Gross receipts' },
@@ -28,6 +31,8 @@ const SCHEDULE_C_ACCOUNTS: Account[] = [
   { code: '5700', name: 'Legal & Professional Services', type: 'expense', taxCategory: 'Line 17 - Legal and professional' },
   { code: '5800', name: 'Office Expenses', type: 'expense', taxCategory: 'Line 18 - Office expense' },
   { code: '5900', name: 'Rent or Lease', type: 'expense', taxCategory: 'Line 20b - Rent (other)' },
+  { code: '5990', name: 'Cost of Goods Sold', type: 'expense', taxCategory: 'Line 4 - Cost of goods sold (Part III)' },
+  { code: '5995', name: 'Inventory Shrinkage', type: 'expense', taxCategory: 'Line 4 - Cost of goods sold (Part III)' },
   { code: '6000', name: 'Repairs & Maintenance', type: 'expense', taxCategory: 'Line 21 - Repairs and maintenance' },
   { code: '6100', name: 'Supplies', type: 'expense', taxCategory: 'Line 22 - Supplies' },
   { code: '6200', name: 'Taxes & Licenses', type: 'expense', taxCategory: 'Line 23 - Taxes and licenses' },

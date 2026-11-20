@@ -17,6 +17,7 @@
  * not a classification).
  */
 import 'server-only';
+import { withoutInventoryRoles } from '@/lib/inventory';
 import { prisma as db } from '@naap/database';
 import { classifyExpenseWithGemini, type CategoryRow } from '@/lib/agentbook-auto-categorize';
 import { UNCATEGORIZED_CODE } from '@/lib/agentbook-chart-of-accounts';
@@ -43,7 +44,7 @@ async function liveCategories(tenantId: string): Promise<CategoryRow[]> {
     select: { id: true, name: true, code: true, taxCategory: true },
     orderBy: { code: 'asc' },
   });
-  return (rows as CategoryRow[]).filter((c) => c.code !== UNCATEGORIZED_CODE);
+  return withoutInventoryRoles(db, tenantId, (rows as CategoryRow[]).filter((c) => c.code !== UNCATEGORIZED_CODE));
 }
 
 export async function suggestCategory(tenantId: string, input: SuggestInput): Promise<CategorySuggestion | null> {

@@ -85,6 +85,9 @@ describe('skill routing — canonical utterances', () => {
     // earlier, unanchored version of the exclude pattern matched this
     // phrase too because anyMatch()'s test() retries at every start offset.
     { text: 'paid an invoice from the plumber for $200', expected: 'record-expense' },
+    // PR 5A review: the new user-led "(I) paid a/the ... invoice" exclude on
+    // record-invoice-payment must not catch a CLIENT paying the user's invoice.
+    { text: 'Acme paid the invoice', expected: 'record-invoice-payment' },
 
     // record-expense — exclusion: "received payment" defers to record-payment
     { text: 'received payment of $1000 from Acme', expected: 'record-payment' },

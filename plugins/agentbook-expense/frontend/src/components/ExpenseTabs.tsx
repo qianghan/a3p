@@ -24,9 +24,11 @@ import { useI18n } from '@naap/plugin-sdk';
 const TABS = [
   { id: 'expenses' as const, labelKey: 'tabs.expenses', href: '/agentbook/expenses' },
   { id: 'bills' as const, labelKey: 'tabs.bills', href: '/agentbook/expenses/bills' },
+  // PR 5A — inventory items; same /agentbook/expenses/* registration as Bills.
+  { id: 'items' as const, labelKey: 'tabs.items', href: '/agentbook/expenses/items' },
 ];
 
-export const ExpenseTabs: React.FC<{ active: 'expenses' | 'bills' }> = ({ active }) => {
+export const ExpenseTabs: React.FC<{ active: 'expenses' | 'bills' | 'items' }> = ({ active }) => {
   // Aliased: the map callback below binds `t` (a tab), which would shadow
   // the translator.
   const { t: tr } = useI18n();

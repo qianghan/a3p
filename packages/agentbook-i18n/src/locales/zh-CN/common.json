@@ -142,5 +142,7 @@
   "telegram_unlinking": "正在取消关联…",
   "telegram_unlink_chats": "取消关联聊天",
   "telegram_hide_advanced": "隐藏高级选项",
-  "telegram_byo_instead": "高级：改用您自己的机器人"
+  "telegram_byo_instead": "高级：改用您自己的机器人",
+  "persona_merchant": "商户",
+  "persona_retail": "零售"
 }

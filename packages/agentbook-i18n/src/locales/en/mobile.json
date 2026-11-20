@@ -69,7 +69,10 @@
       "review_needed_other": "{count} items are waiting for your review",
       "generic": "Something needs your attention",
       "a_client": "A client",
-      "a_vendor": "A vendor"
+      "a_vendor": "A vendor",
+      "low_stock_item": "{item} is low on stock",
+      "low_stock_one": "{count} item is low on stock",
+      "low_stock_other": "{count} items are low on stock"
     },
     "action": {
       "logged": "Logged",
@@ -412,6 +415,7 @@
     "receipt_open": "Open",
     "new_messages": "New messages",
     "offline_banner": "You're offline. Messages won't send until you reconnect.",
-    "unreadable_amount": "Amount unreadable"
+    "unreadable_amount": "Amount unreadable",
+    "topic_low_stock": "Which items are low on stock?"
   }
 }

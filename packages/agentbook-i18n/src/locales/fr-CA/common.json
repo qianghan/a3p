@@ -142,5 +142,7 @@
   "telegram_unlinking": "Dissociation…",
   "telegram_unlink_chats": "Dissocier les discussions",
   "telegram_hide_advanced": "Masquer les options avancées",
-  "telegram_byo_instead": "Avancé : utilisez plutôt votre propre robot"
+  "telegram_byo_instead": "Avancé : utilisez plutôt votre propre robot",
+  "persona_merchant": "Commerçant",
+  "persona_retail": "Commerce de détail"
 }

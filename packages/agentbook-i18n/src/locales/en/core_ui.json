@@ -404,5 +404,7 @@
   "process": "Process",
   "delete_draft": "Delete draft",
   "pay_date_on": "Pay date {date}",
-  "pay_date_is_a_weekend": "Pay date is a weekend — statutory reports use this date."
+  "pay_date_is_a_weekend": "Pay date is a weekend — statutory reports use this date.",
+  "track_inventory": "Track inventory",
+  "track_inventory_help": "Count stock you buy and sell. Purchases on bills with an item go to Inventory (1500) instead of an expense."
 }

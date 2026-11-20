@@ -9,6 +9,8 @@ const BAS_ACCOUNTS: Account[] = [
   { code: '1300', name: 'Business Savings Account', type: 'asset' },
   { code: '1400', name: 'Term Deposits', type: 'asset' },
   // Liabilities
+  // Inventory (PR 5A): trading stock at weighted-average cost.
+  { code: '1500', name: 'Inventory', type: 'asset' },
   { code: '2000', name: 'Accounts Payable', type: 'liability' },
   { code: '2100', name: 'GST Payable', type: 'liability' },
   { code: '2200', name: 'PAYG Withholding Payable', type: 'liability' },
@@ -17,6 +19,7 @@ const BAS_ACCOUNTS: Account[] = [
   // Equity
   { code: '3000', name: "Owner's Equity", type: 'equity' },
   { code: '3100', name: "Owner's Drawings", type: 'equity' },
+  { code: '3900', name: 'Opening Balance Equity', type: 'equity' },
   // Revenue
   { code: '4000', name: 'Sales Revenue', type: 'revenue', taxCategory: 'BAS - Total sales' },
   { code: '4100', name: 'Service Revenue', type: 'revenue', taxCategory: 'BAS - Total sales' },
@@ -32,6 +35,7 @@ const BAS_ACCOUNTS: Account[] = [
   { code: '5700', name: 'Insurance', type: 'expense', taxCategory: 'ITR - All other expenses' },
   { code: '5800', name: 'Interest & Bank Charges', type: 'expense', taxCategory: 'ITR - Interest expenses' },
   { code: '5900', name: 'Accounting & Legal Fees', type: 'expense', taxCategory: 'ITR - All other expenses' },
+  { code: '5995', name: 'Inventory Shrinkage', type: 'expense', taxCategory: 'ITR - Cost of sales' },
   { code: '6000', name: 'Telephone & Internet', type: 'expense', taxCategory: 'ITR - All other expenses' },
   { code: '6100', name: 'Depreciation', type: 'expense', taxCategory: 'ITR - Depreciation expenses' },
   { code: '6200', name: 'Superannuation', type: 'expense', taxCategory: 'ITR - Superannuation expenses' },

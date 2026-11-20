@@ -121,6 +121,10 @@ describe('autoPopulateForm — real BusinessSchedule template, formula chain gro
         '5000': 50_000, // advertising
         '6100': 20_000, // office_supplies
       };
+      // `{ in: [...] }` (net_expense_categories: — cost of sales is 5000 + 5995 net, PR 5A).
+      if (codeFilter && typeof codeFilter === 'object' && Array.isArray(codeFilter.in)) {
+        return { _sum: { debitCents: codeFilter.in.reduce((s: number, c: string) => s + (debitByCode[c] ?? 0), 0), creditCents: 0 } };
+      }
       return { _sum: { debitCents: debitByCode[codeFilter] ?? 0, creditCents: 0 } };
     });
 
@@ -193,5 +197,59 @@ describe('autoPopulateForm — real IndividualReturn template, formula chain tax
 
     const totalTax = evaluateFormula(totalTaxField.formula, fields, {}, 2025);
     expect(totalTax).toBe((incomeTax ?? 0) + (medicareLevy ?? 0));
+  });
+});
+
+describe('AU P8 trading stock (PR 5A)', () => {
+  it('closing stock reads the 1500 balance at year end; cost of sales nets credits on 5000 + 5995', async () => {
+    const { resolveSourceQuery, ALL_AU_FORMS } = (await loadTaxForms()) as any;
+    const sched = ALL_AU_FORMS.find((f: any) => f.formCode === 'BusinessSchedule');
+    const fields = sched.sections.flatMap((s: any) => s.fields);
+    expect(fields.find((f: any) => f.fieldId === 'closing_stock')).toMatchObject({ source: 'auto', sourceQuery: 'account_balance:1500' });
+    expect(fields.find((f: any) => f.fieldId === 'cost_of_sales')).toMatchObject({ source: 'auto', sourceQuery: 'net_expense_categories:5000,5995' });
+
+    dbMock.abJournalLine.aggregate.mockImplementation(async (args: any) => {
+      const c = args.where.account.code;
+      if (c === '1500') return { _sum: { debitCents: 12_000, creditCents: 3_000 } };
+      if (c && Array.isArray(c.in)) return { _sum: { debitCents: 3_500, creditCents: 500 } };
+      return { _sum: { debitCents: 0, creditCents: 0 } };
+    });
+    expect(await resolveSourceQuery('t', 2026, 'account_balance:1500')).toBe(9_000);
+    expect(await resolveSourceQuery('t', 2026, 'net_expense_categories:5000,5995')).toBe(3_000);
+  });
+});
+
+describe('closing stock uses the income-year window in UTC (PR 5A review I1)', () => {
+  // 1500 debits by date; the aggregate mock applies the date filter the query sends.
+  const LINES = [
+    { date: '2025-08-15', cents: 3000 }, { date: '2025-12-20', cents: 2000 },
+    { date: '2026-03-01', cents: 1000 }, { date: '2026-06-30', cents: 500 },
+    { date: '2026-07-01', cents: 7000 },
+  ];
+  function stubLedger(jurisdiction: string) {
+    dbMock.abTenantConfig.findFirst.mockResolvedValue({ jurisdiction } as any);
+    dbMock.abJournalLine.aggregate.mockImplementation(async (args: any) => {
+      const d = args.where.entry.date;
+      const sum = LINES.filter((l) => {
+        const t = new Date(`${l.date}T00:00:00.000Z`).getTime();
+        return (!d.gte || t >= d.gte.getTime()) && (!d.lt || t < d.lt.getTime());
+      }).reduce((s, l) => s + l.cents, 0);
+      return { _sum: { debitCents: sum, creditCents: 0 } };
+    });
+  }
+
+  it('AU 2026 income year closes 30 Jun 2026: Aug–Dec and Jan–Jun purchases count, 1 Jul does not', async () => {
+    const { resolveSourceQuery, incomeYearWindow } = (await loadTaxForms()) as any;
+    stubLedger('au');
+    expect(await resolveSourceQuery('t', 2026, 'account_balance:1500')).toBe(6500);
+    expect(incomeYearWindow('au', 2026).endExclusive.toISOString()).toBe('2026-07-01T00:00:00.000Z');
+  });
+
+  it('US/CA close 31 Dec: only Aug–Dec 2025 count for 2025', async () => {
+    const { resolveSourceQuery } = (await loadTaxForms()) as any;
+    stubLedger('us');
+    expect(await resolveSourceQuery('t', 2025, 'account_balance:1500')).toBe(5000);
+    stubLedger('ca');
+    expect(await resolveSourceQuery('t', 2025, 'account_balance:1500')).toBe(5000);
   });
 });

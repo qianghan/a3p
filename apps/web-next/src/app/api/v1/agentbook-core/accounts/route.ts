@@ -5,6 +5,7 @@
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
+import { withoutInventoryRoles } from '@/lib/inventory';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
 
@@ -22,7 +23,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       where: { tenantId, isActive: true, ...(type ? { accountType: type } : {}) },
       orderBy: { code: 'asc' },
     });
-    return NextResponse.json({ success: true, data: accounts });
+    // ?type=expense feeds the expense category pickers (web + mobile): inventory
+    // role accounts are posted by the engine only, never picked (PR 5A).
+    const data = type === 'expense' ? await withoutInventoryRoles(db, tenantId, accounts) : accounts;
+    return NextResponse.json({ success: true, data });
   } catch (err) {
     console.error('[agentbook-core/accounts GET] failed:', err);
     return NextResponse.json(
