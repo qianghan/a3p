@@ -13,5 +13,11 @@
   "sharedKb": 103,
   "inheritFrom": {
     "/app/docs/[id]": "/app/docs"
+  },
+  "overrides": {
+    "/app/docs": {
+      "allowanceKb": 45,
+      "reason": "2026-11-19, PR 4c: /app/docs sat exactly at 175 kB after PR 3bc (bill rows, sheet and AiBanner already lazy-loaded). The i18n catalog ships on every route and cannot be split per route (measured 2026-10), so each programme PR that adds catalog keys grows this route by ~1 kB with no Docs code change. +5 kB of headroom for the remaining programme PRs (4d, 4e, 5A, 5B); revisit the catalog-size axes (-36 kB / -42 kB) before raising again."
+    }
   }
 }
