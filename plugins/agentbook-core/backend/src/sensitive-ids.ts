@@ -98,3 +98,15 @@ export function redactSensitiveIds(text: string): string {
     return isValidTfn(m) || isValidSin(m) || (ssnShape && isValidSsn(m)) ? '[redacted]' : m;
   });
 }
+
+/** Redact every STRING value in a JSON-like value (numbers such as ids are left alone). */
+export function redactSensitiveDeep<T>(value: T): T {
+  if (typeof value === 'string') return redactSensitiveIds(value) as unknown as T;
+  if (Array.isArray(value)) return value.map((v) => redactSensitiveDeep(v)) as unknown as T;
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactSensitiveDeep(v);
+    return out as T;
+  }
+  return value;
+}
