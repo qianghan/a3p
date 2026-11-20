@@ -14,6 +14,9 @@ let employees: Row[] = [];
 let runs: Row[] = [];
 let stubs: Row[] = [];
 let seq = 0;
+let injectTxErrors: string[] = [];
+let txLock: Promise<unknown> = Promise.resolve();
+const txOpts: unknown[] = [];
 
 function matches(row: Row, where: Row = {}): boolean {
   return Object.entries(where).every(([k, v]) => {
@@ -28,6 +31,7 @@ const db = {
   abPayRun: {
     create: vi.fn(async ({ data }: { data: Row }) => { const r = { id: `run-${++seq}`, status: 'draft', ...data }; runs.push(r); return r; }),
     findFirst: vi.fn(async ({ where }: { where: Row }) => runs.find((r) => matches(r, where)) ?? null),
+    findMany: vi.fn(async ({ where }: { where: Row }) => runs.filter((r) => matches(r, where)).map((r) => ({ ...r, stubs: stubs.filter((s) => s.payRunId === r.id) }))),
     findUnique: vi.fn(async ({ where }: { where: Row }) => { const r = runs.find((x) => x.id === where.id); return r ? { ...r, stubs: stubs.filter((s) => s.payRunId === r.id) } : null; }),
     deleteMany: vi.fn(async ({ where }: { where: Row }) => { const before = runs.length; runs = runs.filter((r) => !matches(r, where)); return { count: before - runs.length }; }),
   },
@@ -35,7 +39,19 @@ const db = {
     create: vi.fn(async ({ data }: { data: Row }) => { stubs.push(data); return data; }),
     deleteMany: vi.fn(async ({ where }: { where: Row }) => { const b = stubs.length; stubs = stubs.filter((s) => !matches(s, where)); return { count: b - stubs.length }; }),
   },
-  $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(db)),
+  // Serializable stand-in: transactions run one at a time; an injected code aborts the attempt before it runs.
+  $transaction: vi.fn(async (fn: (tx: unknown) => unknown, opts?: unknown) => {
+    txOpts.push(opts);
+    const prev = txLock;
+    let release!: () => void;
+    txLock = new Promise<void>((res) => { release = res; });
+    await prev;
+    try {
+      const code = injectTxErrors.shift();
+      if (code) throw Object.assign(new Error('serialization failure'), { code });
+      return await fn(db);
+    } finally { release(); }
+  }),
 };
 
 vi.mock('@naap/database', () => ({ prisma: new Proxy({}, { get: (_t, k) => (db as Record<string, unknown>)[k as string] }) }));
@@ -54,7 +70,7 @@ const emp = (o: Row): Row => ({
 });
 
 beforeEach(() => {
-  seq = 0; runs = []; stubs = [];
+  seq = 0; runs = []; stubs = []; injectTxErrors = []; txOpts.length = 0;
   employees = [
     emp({ id: 'a', name: 'A Weekly', payFrequency: 'weekly', payAnchorDate: d('2026-01-05') }),
     emp({ id: 'b', name: 'B Biweekly', payFrequency: 'biweekly', payAnchorDate: d('2025-12-22'), jurisdiction: 'au', region: '' }),
@@ -123,6 +139,99 @@ describe('POST /pay-runs { generate: "drafts" }', () => {
   it('400 on a malformed asOf; 400 when no active employees match', async () => {
     expect((await POST(req({ generate: 'drafts', asOf: '2026-02-30' }))).status).toBe(400);
     expect((await POST(req({ generate: 'drafts', employeeIds: ['nope'] }))).status).toBe(400);
+  });
+});
+
+describe('draft extension, conflicts and concurrency (review I1/I2)', () => {
+  const stubIds = (runId: string) => stubs.filter((s) => s.payRunId === runId).map((s) => s.employeeId).sort();
+
+  it('two fortnightly groups 14·k days apart share a period → ONE draft holding both', async () => {
+    employees = [
+      emp({ id: 'f1', name: 'F1', payFrequency: 'biweekly', payAnchorDate: d('2026-01-05') }),
+      emp({ id: 'f2', name: 'F2', payFrequency: 'biweekly', payAnchorDate: d('2026-02-02') }), // +28 days
+    ];
+    const body = await (await POST(req({ generate: 'drafts', asOf: '2026-02-20' }))).json();
+    expect(body.data.runs).toHaveLength(1);
+    expect(body.data.runs[0].periodStart).toBe(d('2026-02-16').toISOString());
+    expect(stubIds(body.data.runs[0].id)).toEqual(['f1', 'f2']);
+  });
+
+  it('fortnightly groups 7 days apart get separate drafts', async () => {
+    employees = [
+      emp({ id: 'f1', name: 'F1', payFrequency: 'biweekly', payAnchorDate: d('2026-01-05') }),
+      emp({ id: 'f3', name: 'F3', payFrequency: 'biweekly', payAnchorDate: d('2026-01-12') }),
+    ];
+    const body = await (await POST(req({ generate: 'drafts', asOf: '2026-02-20' }))).json();
+    const periods = body.data.runs.map((r: Row) => [r.periodStart, stubIds(r.id as string)]).sort();
+    expect(periods).toEqual([[d('2026-02-09').toISOString(), ['f3']], [d('2026-02-16').toISOString(), ['f1']]]);
+  });
+
+  it('a subset then the full set extends the same draft (addedStubs), never duplicating a stub', async () => {
+    employees = [
+      emp({ id: 'm1', name: 'M1', payFrequency: 'monthly' }),
+      emp({ id: 'm2', name: 'M2', payFrequency: 'monthly' }),
+    ];
+    const first = await (await POST(req({ generate: 'drafts', asOf: '2026-02-10', employeeIds: ['m1'] }))).json();
+    expect(first.data.runs[0]).toMatchObject({ created: true, addedStubs: 1 });
+    const second = await (await POST(req({ generate: 'drafts', asOf: '2026-02-10' }))).json();
+    expect(runs).toHaveLength(1);
+    expect(second.data.runs[0]).toMatchObject({ id: first.data.runs[0].id, created: false, addedStubs: 1 });
+    expect(stubIds(runs[0].id as string)).toEqual(['m1', 'm2']);
+  });
+
+  it('an employee added after the draft is added to it', async () => {
+    employees = [emp({ id: 'm1', name: 'M1', payFrequency: 'monthly' })];
+    await POST(req({ generate: 'drafts', asOf: '2026-02-10' }));
+    employees.push(emp({ id: 'm9', name: 'M9 late', payFrequency: 'monthly' }));
+    const body = await (await POST(req({ generate: 'drafts', asOf: '2026-02-11' }))).json();
+    expect(body.data.runs[0].addedStubs).toBe(1);
+    expect(stubIds(runs[0].id as string)).toEqual(['m1', 'm9']);
+  });
+
+  it('a legacy run without payFrequency for the same period is treated as the draft (dedupe)', async () => {
+    employees = [emp({ id: 'm1', name: 'M1', payFrequency: 'monthly' })];
+    runs.push({ id: 'legacy', tenantId: 't1', status: 'draft', periodStart: d('2026-02-01'), periodEnd: d('2026-02-28'), payFrequency: null });
+    const body = await (await POST(req({ generate: 'drafts', asOf: '2026-02-10' }))).json();
+    expect(runs).toHaveLength(1);
+    expect(body.data.runs[0]).toMatchObject({ id: 'legacy', created: false, addedStubs: 1 });
+  });
+
+  it('a processed run for the period → 409 period_already_processed naming the employees, nothing written', async () => {
+    employees = [emp({ id: 'm1', name: 'M1', payFrequency: 'monthly' })];
+    runs.push({ id: 'done', tenantId: 't1', status: 'processed', periodStart: d('2026-02-01'), periodEnd: d('2026-02-28'), payFrequency: 'monthly' });
+    const res = await POST(req({ generate: 'drafts', asOf: '2026-02-10' }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.code).toBe('period_already_processed');
+    expect(body.employeeIds).toEqual(['m1']);
+    expect(runs).toHaveLength(1);
+    expect(stubs).toHaveLength(0);
+  });
+
+  it('concurrent generate calls create ONE draft with one stub each (Serializable tx)', async () => {
+    employees = [emp({ id: 'm1', name: 'M1', payFrequency: 'monthly' })];
+    const [a, b] = await Promise.all([POST(req({ generate: 'drafts', asOf: '2026-02-10' })), POST(req({ generate: 'drafts', asOf: '2026-02-10' }))]);
+    expect([a.status, b.status]).toEqual([201, 201]);
+    expect(runs).toHaveLength(1);
+    expect(stubs).toHaveLength(1);
+    expect(txOpts.every((o) => (o as { isolationLevel?: string })?.isolationLevel === 'Serializable')).toBe(true);
+  });
+
+  it('a P2034 abort is retried and succeeds', async () => {
+    employees = [emp({ id: 'm1', name: 'M1', payFrequency: 'monthly' })];
+    injectTxErrors.push('P2034');
+    const res = await POST(req({ generate: 'drafts', asOf: '2026-02-10' }));
+    expect(res.status).toBe(201);
+    expect(runs).toHaveLength(1);
+  });
+
+  it('exhausted P2034 retries → 409 concurrent_update, nothing written', async () => {
+    employees = [emp({ id: 'm1', name: 'M1', payFrequency: 'monthly' })];
+    injectTxErrors.push('P2034', 'P2034', 'P2034');
+    const res = await POST(req({ generate: 'drafts', asOf: '2026-02-10' }));
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe('concurrent_update');
+    expect(runs).toHaveLength(0);
   });
 });
 

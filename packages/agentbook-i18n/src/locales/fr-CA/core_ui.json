@@ -402,5 +402,6 @@
   "generate_draft_pay_runs": "Générer les ébauches de paie",
   "process": "Traiter",
   "delete_draft": "Supprimer l’ébauche",
-  "pay_date_on": "Date de paie : {date}"
+  "pay_date_on": "Date de paie : {date}",
+  "pay_date_is_a_weekend": "La date de paie tombe un week-end — les déclarations obligatoires utilisent cette date."
 }

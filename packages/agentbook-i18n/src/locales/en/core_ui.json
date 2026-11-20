@@ -402,5 +402,6 @@
   "generate_draft_pay_runs": "Generate draft pay runs",
   "process": "Process",
   "delete_draft": "Delete draft",
-  "pay_date_on": "Pay date {date}"
+  "pay_date_on": "Pay date {date}",
+  "pay_date_is_a_weekend": "Pay date is a weekend — statutory reports use this date."
 }

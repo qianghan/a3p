@@ -143,6 +143,19 @@ describe('reveal', () => {
     expect(window.localStorage.length + window.sessionStorage.length).toBe(0);
   });
 
+  it('unmounting while revealed clears the re-mask timer', async () => {
+    mockFetch(employee('ca'));
+    const clear = vi.spyOn(globalThis, 'clearTimeout');
+    const { unmount } = renderWithI18n(<EmployeeDetail id="e1" />, 'en');
+    await screen.findByText('On file, ending 4286');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reveal' })[0]);
+    await screen.findByText('046454286');
+    const before = clear.mock.calls.length;
+    unmount();
+    expect(clear.mock.calls.length).toBeGreaterThan(before);
+    clear.mockRestore();
+  });
+
   it('403 shows the owner-only message and no value', async () => {
     mockFetch(employee('ca'));
     revealResponse = [403, { success: false, error: 'only the account owner can reveal employee details' }];

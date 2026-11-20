@@ -402,5 +402,6 @@
   "generate_draft_pay_runs": "生成薪资草稿",
   "process": "处理",
   "delete_draft": "删除草稿",
-  "pay_date_on": "发薪日 {date}"
+  "pay_date_on": "发薪日 {date}",
+  "pay_date_is_a_weekend": "发薪日是周末——法定报表使用此日期。"
 }

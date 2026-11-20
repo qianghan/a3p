@@ -54,5 +54,18 @@ describe('payroll list (PR 4c)', () => {
     expect(posts[0]).toEqual({ url: '/api/v1/agentbook-payroll/pay-runs', body: { generate: 'drafts' } });
     const line = await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === `${t('core_ui.pay_date_on', { date: new Date('2026-11-22T00:00:00.000Z').toLocaleDateString(undefined, { timeZone: 'UTC' }) })} · ${t('core_ui.bi_weekly')}`);
     expect(line).toBeInTheDocument();
+    // 2026-11-22 is a Sunday: the weekend note shows, keyed to the stored payDate (no business-day rolling).
+    expect(new Date('2026-11-22T00:00:00.000Z').getUTCDay()).toBe(0);
+    expect(screen.getByText(t('core_ui.pay_date_is_a_weekend'))).toBeInTheDocument();
+  });
+
+  it('no weekend note for a weekday pay date', async () => {
+    mockFetch('us');
+    runs = [{ id: 'r2', periodStart: '2026-11-09T00:00:00.000Z', periodEnd: '2026-11-20T00:00:00.000Z', payDate: '2026-11-20T00:00:00.000Z', payFrequency: 'biweekly', status: 'draft', stubs: [] }];
+    renderWithI18n(<PayrollPage />, 'en');
+    const t = i18nT('en');
+    fireEvent.click(await screen.findByRole('button', { name: /Pay runs/ }));
+    await screen.findByText(new RegExp(t('core_ui.pay_date_on', { date: new Date('2026-11-20T00:00:00.000Z').toLocaleDateString(undefined, { timeZone: 'UTC' }) })));
+    expect(screen.queryByText(t('core_ui.pay_date_is_a_weekend'))).toBeNull();
   });
 });

@@ -10,7 +10,9 @@ import { api } from '../nightly/helpers/api';
  * prove the catalog locale against the page's h1, assert the market's frequency label (Fortnightly in AU,
  * Bi-weekly in US/CA — in whatever locale the tenant renders), change the frequency to weekly in the UI and save,
  * then generate a draft pay run for THIS employee only and assert its period and payDate against dates computed
- * here from the anchor. The draft and the employee are deleted; nothing seeded is touched.
+ * here from the anchor. The draft's asOf is a far-past date unique to this run (derived from the tag), so its period
+ * cannot collide with any real run; the test REQUIRES created:true, deletes only runs it created, and afterAll asserts
+ * each is gone (404) and that no run in the list carries a stub for the tagged employee. Nothing seeded is touched.
  */
 test.describe.configure({ mode: 'serial' });
 test.use({ viewport: { width: 1280, height: 900 } });
@@ -24,7 +26,12 @@ const MARKETS: Array<{ persona: Exclude<Persona, 'fresh'>; jurisdiction: 'ca' | 
 
 const DAY = 86_400_000;
 const isoUtc = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-const todayUtcMs = () => { const n = new Date(); return Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()); };
+/** A far-past day (2001-01-01 + 0..7299 days) derived from the run tag: unique per run, never a real pay period. */
+function uniquePastDayMs(tag: string): number {
+  let h = 0;
+  for (const c of tag) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return Date.UTC(2001, 0, 1) + (h % 7300) * DAY;
+}
 
 for (const m of MARKETS) {
   test.describe(`employee UI — ${m.persona} (${m.jurisdiction})`, () => {
@@ -33,8 +40,8 @@ for (const m of MARKETS) {
     let page: Page;
     let t: CatalogT;
     let id = '';
-    const runIds: string[] = [];
-    const today = todayUtcMs();
+    const createdRunIds: string[] = [];
+    const today = uniquePastDayMs(tag);
     const anchor = isoUtc(today - 10 * DAY);
 
     test.beforeAll(async ({ browser }, testInfo) => {
@@ -61,7 +68,15 @@ for (const m of MARKETS) {
     test.afterAll(async () => {
       if (!context) return;
       try {
-        for (const r of runIds) expect([200, 404]).toContain((await api(page).delete(`${PAYROLL}/pay-runs/${r}`)).status);
+        // Only runs THIS test created are deleted; each must then be gone.
+        for (const r of createdRunIds) {
+          expect([200, 404]).toContain((await api(page).delete(`${PAYROLL}/pay-runs/${r}`)).status);
+          expect((await api(page).get(`${PAYROLL}/pay-runs/${r}`)).status, `run ${r} removed`).toBe(404);
+        }
+        const all = await api(page).get(`${PAYROLL}/pay-runs`);
+        const withOurStub = ((all.data as { data: Array<{ id: string; stubs: Array<{ employeeId: string }> }> }).data)
+          .filter((r) => r.stubs.some((s) => s.employeeId === id)).map((r) => r.id);
+        expect(withOurStub, 'no run keeps a stub for the tagged employee').toEqual([]);
         if (id) expect([200, 404]).toContain((await api(page).delete(`${PAYROLL}/employees/${id}`)).status);
         const list = await api(page).get(`${PAYROLL}/employees`);
         expect(((list.data as { data: Array<{ name: string }> }).data).filter((e) => e.name.includes(tag))).toEqual([]);
@@ -97,9 +112,12 @@ for (const m of MARKETS) {
       expect(res.status).toBe(201);
       const runs = (res.data as { data: { runs: Array<{ id: string; periodStart: string; periodEnd: string; payDate: string; payFrequency: string; status: string; stubs: Array<{ employeeId: string; grossCents: number }> }> } }).data.runs;
       expect(runs).toHaveLength(1);
-      const r = runs[0];
-      runIds.push(r.id);
-      // anchor = today-10 → weekly periods start at anchor, anchor+7 → today falls in [anchor+7, anchor+13].
+      const r = runs[0] as (typeof runs)[number] & { created: boolean; addedStubs: number };
+      // A unique far-past period: the run must be new. If it is not, fail rather than touch a pre-existing draft.
+      expect(r.created, 'draft must be created by this test, not an existing run').toBe(true);
+      createdRunIds.push(r.id);
+      expect(r.addedStubs).toBe(1);
+      // anchor = asOf-10 → weekly periods start at anchor, anchor+7 → today falls in [anchor+7, anchor+13].
       const start = isoUtc(today - 3 * DAY), end = isoUtc(today + 3 * DAY);
       expect([r.periodStart.slice(0, 10), r.periodEnd.slice(0, 10), r.payDate.slice(0, 10)]).toEqual([start, end, end]);
       expect(r.payFrequency).toBe('weekly');

@@ -307,6 +307,10 @@ export default function PayrollPage() {
                           {r.payFrequency && t(frequencyLabelKey(r.payFrequency, tenantJurisdiction))}
                         </p>
                       )}
+                      {/* payDate stays the period end (no business-day rolling); statutory reports (4d) use it as-is. */}
+                      {r.payDate && [0, 6].includes(new Date(r.payDate).getUTCDay()) && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400">{t('core_ui.pay_date_is_a_weekend')}</p>
+                      )}
                     </div>
                     <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">
                       {r.status === 'paid' && <Check className="w-3.5 h-3.5" />}{r.status}</span>

@@ -143,7 +143,8 @@ export default function EmployeeDetail({ id }: { id: string }) {
     if (emp && hydratedFor.current !== emp.id + emp.jurisdiction) { hydratedFor.current = emp.id + emp.jurisdiction; hydrate(emp, allFields); }
   });
 
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); setRevealed(null); }, []);
+  // Unmount: cancel the pending re-mask timer (the revealed value dies with the component state).
+  useEffect(() => () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } }, []);
 
   const lastFor = (f: EncField): string | null =>
     f === 'taxId' ? emp?.sensitive.taxIdLast4 ?? null : f === 'bankAccount' ? emp?.sensitive.bankLast4 ?? null : null;
