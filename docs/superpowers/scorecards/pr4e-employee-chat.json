@@ -20,10 +20,12 @@
       "covers": [
         "R-EMP-5"
       ],
-      "text": "Chat never reads AbEmployeeSensitive and refuses tax id / bank / super edits with a pointer to the profile screen, echoing no value; a message containing an SSN/SIN/TFN-shaped value is refused before classification, the LLM, sessions or memory, the AbConversation row holds only the redacted text, and nothing logged contains the digits.",
+      "text": "Chat never reads AbEmployeeSensitive and refuses tax id / bank / super edits with a pointer to the profile screen, echoing no value; a message with a checksum-valid personal TFN/SIN/SSN (labelled, or unlabelled without a business prefix) is refused before classification (invoice/ABN/ACN/EIN/bank/routing numbers pass), Telegram refuses before its own context/thread/memory writes, the shared turn writers redact,, the LLM, sessions or memory, the AbConversation row holds only the redacted text, and nothing logged contains the digits.",
       "tests": [
         "plugins/agentbook-core/backend/src/__tests__/employee-chat-brain.test.ts",
-        "plugins/agentbook-core/backend/src/__tests__/employee-chat-skills.test.ts"
+        "plugins/agentbook-core/backend/src/__tests__/employee-chat-skills.test.ts",
+        "plugins/agentbook-core/backend/src/__tests__/sensitive-ids.test.ts",
+        "apps/web-next/src/__tests__/architecture/telegram-sensitive-ids.test.ts"
       ]
     }
   ],

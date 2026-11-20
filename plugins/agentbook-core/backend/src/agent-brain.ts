@@ -29,7 +29,8 @@ import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from 
 import { ensureAdvisorPersona, buildAdvisorVoice, composeFirstContact, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
 import { isReviewInterceptable } from './review-interception.js';
 import { replyT } from './reply-locale.js';
-import { agentFrequencyLabelKey, containsSensitiveTaxId, parseEmployeeEdit, redactSensitive } from './employee-chat.js';
+import { agentFrequencyLabelKey, matchEmployees, parseEmployeeEdit } from './employee-chat.js';
+import { classifySensitiveIds, redactSensitiveIds as redactSensitive } from './sensitive-ids.js';
 import { resolveReplyLocale } from './reply-language.js';
 
 // Deterministic local engagement fallback when LLM is unreachable.
@@ -559,7 +560,7 @@ async function updateThreadTurns(
   const existing = (thread.turns as any[]) ?? [];
   const newTurns = [
     ...existing,
-    { role: 'user', text: userText.slice(0, 300), at: new Date().toISOString() },
+    { role: 'user', text: redactSensitive(userText).slice(0, 300), at: new Date().toISOString() },
     {
       role: 'bot',
       text: agentText.slice(0, 300),
@@ -804,7 +805,7 @@ function fmtConfirmMoney(cents: number): string {
   })}`;
 }
 
-function describeDestructiveAction(classification: any, fallbackText: string, t?: (k: string, v?: Record<string, unknown>) => string): string {
+function describeDestructiveAction(classification: any, fallbackText: string, t?: (k: string, v?: Record<string, unknown>) => string, employeeJurisdiction?: string | null): string {
   const name = classification?.selectedSkill?.name || 'unknown';
   const params = classification?.extractedParams || {};
   switch (name) {
@@ -813,7 +814,7 @@ function describeDestructiveAction(classification: any, fallbackText: string, t?
       // ask never reaches here with a value (refused upstream); never echo text.
       const edit = parseEmployeeEdit(fallbackText);
       if (!t) return 'Update employee pay details';
-      if (edit.kind === 'payFrequency') return t('agent.employee_confirm_frequency', { frequency: t(agentFrequencyLabelKey(edit.value, String(classification?.tenantConfig?.jurisdiction || ''))) });
+      if (edit.kind === 'payFrequency') return t('agent.employee_confirm_frequency', { frequency: t(agentFrequencyLabelKey(edit.value, String(employeeJurisdiction || classification?.tenantConfig?.jurisdiction || ''))) });
       if (edit.kind === 'payRateCents') return t('agent.employee_confirm_rate');
       return t('agent.employee_confirm_generic');
     }
@@ -1176,7 +1177,8 @@ export async function handleAgentMessage(
   // PR 4e — a TFN/SIN/SSN (or bank/member number) typed into chat is refused
   // BEFORE anything sees it: no classification, no LLM call, no session, no
   // memory. The one AbConversation row written stores the redacted text.
-  if (req.text && containsSensitiveTaxId(req.text)) {
+  const idFinding = classifySensitiveIds(req.text || '');
+  if (req.text && idFinding.refuse) {
     const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null);
     const replyLocale = resolveReplyLocale({ text: redactSensitive(req.text), tenantLocale: (tenantConfig as { locale?: string | null } | null)?.locale ?? null });
     const message = replyT({ locale: replyLocale })('agent.employee_sensitive_refused');
@@ -1186,6 +1188,11 @@ export async function handleAgentMessage(
     return buildResponse({ replyLocale, message, skillUsed: 'sensitive-refused', confidence: 1, latencyMs: 0 });
   }
   const res = await handleAgentMessageCore(req, ctx);
+  // A labelled TFN/SIN/SSN that fails its checksum went through (it is not a real
+  // id) — say so, cheaply, after the normal answer.
+  if (idFinding.labelledInvalid && res?.data && typeof res.data.message === 'string') {
+    res.data.message += `\n\n${replyT({ locale: res.data.replyLocale || 'en' })('agent.sensitive_id_looks_invalid')}`;
+  }
   try {
     // Every conversational channel (web, Telegram, and any future WhatsApp/MCP
     // adapter) gets the full persona; only the 'api' machine channel opts out.
@@ -2186,7 +2193,14 @@ async function handleAgentMessageCore(
     // skill.
     const escalateLowConfidence = shouldEscalateOnConfidence(classification);
     if (classification.confirmBefore || escalateLowConfidence) {
-      const desc = describeDestructiveAction(classification, text, t as any);
+      // The label follows the EMPLOYEE's market (#649: it can differ from the tenant's).
+      let employeeJurisdiction: string | null = null;
+      if (classification.selectedSkill?.name === 'update-employee') {
+        const emps = await db.abEmployee.findMany({ where: { tenantId, isActive: true }, select: { id: true, name: true, jurisdiction: true } }).catch(() => []);
+        const hit = matchEmployees(text, (emps ?? []) as Array<{ id: string; name: string; jurisdiction: string }>);
+        if (hit.length === 1) employeeJurisdiction = hit[0].jurisdiction;
+      }
+      const desc = describeDestructiveAction(classification, text, t as any, employeeJurisdiction);
       // When the gate fires because confidence is low (not because the skill
       // is intrinsically destructive), prepend a clarifying lead-in. The
       // user sees a clear "I'm not sure" framing rather than the standard

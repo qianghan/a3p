@@ -4931,8 +4931,8 @@ async function _executeClassificationCore(
   // audit the profile screen uses. Replies never echo tax ids or bank details.
   if (selectedSkill.name === 'query-employee' || selectedSkill.name === 'update-employee' || selectedSkill.name === 'generate-pay-run-drafts') {
     const skill = selectedSkill.name as string;
-    const reply = async (message: string, data: unknown = null, conf = confidence) => {
-      await db.abConversation.create({ data: { tenantId, question: redactSensitive(text), answer: message, queryType: 'agent', channel, skillUsed: skill } });
+    const reply = async (message: string, data: unknown = null, conf = confidence, question = redactSensitive(text)) => {
+      await db.abConversation.create({ data: { tenantId, question, answer: message, queryType: 'agent', channel, skillUsed: skill } });
       return { selectedSkill, extractedParams, confidence: conf, skillUsed: skill, skillResponse: { data }, responseData: { message, actions: [], chartData: null, skillUsed: skill, confidence: conf, latencyMs: Date.now() - startTime } };
     };
     const payrollBase = baseUrls['/api/v1/agentbook-payroll'] || 'http://localhost:3000';
@@ -4941,7 +4941,8 @@ async function _executeClassificationCore(
       t(e.payType === 'hourly' ? 'agent.employee_rate_hourly' : 'agent.employee_rate_salary', { amount: tenantMoney(e.payRateCents) });
     try {
       if (skill !== 'generate-pay-run-drafts' && (mentionsSensitiveField(text) || containsSensitiveTaxId(text))) {
-        return await reply(t('agent.employee_sensitive_refused'));
+        // The refusal says nothing was saved — so the question is not stored either.
+        return await reply(t('agent.employee_sensitive_refused'), null, confidence, '[sensitive employee request withheld]');
       }
       if (skill === 'generate-pay-run-drafts') {
         const res = await fetch(`${payrollBase}/api/v1/agentbook-payroll/pay-runs`, { method: 'POST', headers: brainHeaders(tenantId), body: JSON.stringify({ generate: 'drafts' }) });
@@ -5030,7 +5031,7 @@ async function _executeClassificationCore(
       const message = findings.length === 0
         ? `✅ **Books look healthy (${score}/100).** No issues found in a quick review. Open the **Accountant** page for a full report.`
         : `**Books health: ${score}/100.** Top items:\n\n${findings.join('\n')}\n\nOpen the **Accountant** page for the full review.`;
-      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'cpa-review' } });
+      await db.abConversation.create({ data: { tenantId, question: redactSensitive(text), answer: message, queryType: 'agent', channel, skillUsed: 'cpa-review' } });
       return { selectedSkill, extractedParams, confidence, skillUsed: 'cpa-review', skillResponse: { data: { score } }, responseData: { message, actions: [], chartData: null, skillUsed: 'cpa-review', confidence, latencyMs: Date.now() - startTime } };
     } catch (err) {
       console.error('[cpa-review] error:', err);

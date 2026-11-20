@@ -38,6 +38,9 @@ vi.mock('../db/client.js', () => {
         findFirst: vi.fn(async () => null), // no active tax-questionnaire session
         updateMany: vi.fn(async () => ({ count: 0 })),
       },
+      abEmployee: {
+        findMany: vi.fn(async () => []),
+      },
       abTenantConfig: {
         findFirst: vi.fn(async () => null),
       },
@@ -76,6 +79,18 @@ describe('update-employee confirm gate', () => {
     expect(res.data.plan?.requiresConfirmation).toBe(true);
     expect(res.data.message).toContain('Fortnightly');
   });
+
+  it('the confirm label follows the EMPLOYEE market: AU employee in a CA tenant → Fortnightly', async () => {
+    (db.abTenantConfig.findFirst as any).mockResolvedValue({ jurisdiction: 'ca', locale: 'en-CA' });
+    (db.abEmployee.findMany as any).mockResolvedValue([{ id: 'e1', name: 'Jane Doe', jurisdiction: 'au' }, { id: 'e2', name: 'Bob Roy', jurisdiction: 'ca' }]);
+    const { req, ctx } = buildTestContext({ text: 'change Jane to fortnightly', tenantId: 't-ca', classification: updateCls as any });
+    const orig = (ctx as any).classifyOnly;
+    (ctx as any).classifyOnly = vi.fn(async (...a: any[]) => ({ ...(await orig(...a)), tenantConfig: { jurisdiction: 'ca' } }));
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+    expect(res.data.message).toContain('Fortnightly');
+    expect(res.data.message).not.toContain('Bi-weekly');
+  });
 });
 
 describe('sensitive identifiers typed into chat', () => {
@@ -102,6 +117,22 @@ describe('sensitive identifiers typed into chat', () => {
     expect(writes.replace(/\D/g, '')).not.toContain(digits);
     expect((db.abAgentSession.create as any)).not.toHaveBeenCalled();
     expect(logs.join(' ').replace(/\D/g, '')).not.toContain(digits);
+  });
+
+  it('a labelled checksum-INVALID TFN goes through, with a "looks invalid" note', async () => {
+    const { req, ctx, executeClassification } = buildTestContext({ text: 'my TFN 123 456 789 — how much tax do I owe?', tenantId: 't-1', classification: { selectedSkill: { name: 'tax-estimate', endpoint: { method: 'INTERNAL', url: '' }, confirmBefore: false }, extractedParams: {}, confidence: 0.9 } as any });
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+    expect(res.data.skillUsed).not.toBe('sensitive-refused');
+    expect(executeClassification).toHaveBeenCalled();
+    expect(res.data.message).toContain("doesn't look like a valid");
+  });
+
+  it.each(['INV 123 456 789', 'ABN 51 824 753 556', 'order 123-45-6789', 'routing 021000021'])('business number %s is NOT refused', async (text) => {
+    const { req, ctx } = buildTestContext({ text, tenantId: 't-1', classification: { selectedSkill: { name: 'general-question', endpoint: { method: 'INTERNAL', url: '' }, confirmBefore: false }, extractedParams: {}, confidence: 0.9 } as any });
+    const { handleAgentMessage } = await import('../agent-brain');
+    const res = await handleAgentMessage(req as any, ctx as any);
+    expect(res.data.skillUsed).not.toBe('sensitive-refused');
   });
 
   it('replies in French for a French message', async () => {

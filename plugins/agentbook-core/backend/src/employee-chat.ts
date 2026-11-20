@@ -24,25 +24,17 @@ export function agentFrequencyLabelKey(frequency: string, jurisdiction: string):
 }
 
 // ── Sensitive identifiers ────────────────────────────────────────────────
-// SSN 123-45-6789 · SIN/TFN 123-456-789 / 123 456 789 (separated groups, so a
-// phone 123-456-7890 or an invoice number does not match) · or any 8–9 digit
-// run right after a tax-id keyword ("my TFN is 123456782").
-const GROUPED_ID = /(?<!\d)\d{3}[-\s.]\d{2}[-\s.]\d{4}(?!\d)|(?<!\d)\d{3}[-\s.]\d{3}[-\s.]\d{3}(?![-\s.]?\d)/;
-const KEYWORD = /\b(ssn|sin|tfn|itin|social\s+security|social\s+insurance|tax\s+file|tax\s+id|bank\s+account|account\s+number|bsb|routing|member\s+number)\b/i;
-const KEYWORD_THEN_DIGITS = new RegExp(`${KEYWORD.source}[^\\d]{0,20}\\d[\\d\\s-]{5,}`, 'i');
+// Refusal + redaction live in sensitive-ids.ts (one module for every write path).
+import { classifySensitiveIds, redactSensitiveIds } from './sensitive-ids.js';
+const KEYWORD = /\b(ssn|sin|tfn|nas|itin|social\s+security|social\s+insurance|tax\s+file|bank\s+account|account\s+number|bsb|routing|member\s+number)\b/i;
 
+/** Should the message be refused before the brain sees it (checksum-valid personal id)? */
 export function containsSensitiveTaxId(text: string): boolean {
-  const s = text || '';
-  return GROUPED_ID.test(s) || KEYWORD_THEN_DIGITS.test(s);
+  return classifySensitiveIds(text).refuse;
 }
 
-/** Redact anything containsSensitiveTaxId would flag — for persistence/logging. */
-export function redactSensitive(text: string): string {
-  let s = text || '';
-  s = s.replace(new RegExp(GROUPED_ID.source, 'g'), '[redacted]');
-  s = s.replace(new RegExp(`(${KEYWORD.source}[^\\d]{0,20})\\d[\\d\\s-]{5,}`, 'gi'), (_m, lead) => `${lead}[redacted]`);
-  return s;
-}
+/** Redact for persistence/logging. */
+export const redactSensitive = redactSensitiveIds;
 
 /** Does the user ask to change/see a sensitive field (no value needed)? */
 export function mentionsSensitiveField(text: string): boolean {

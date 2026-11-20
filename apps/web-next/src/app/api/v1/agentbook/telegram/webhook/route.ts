@@ -20,6 +20,7 @@ import {
   type ReceiptOcrResult, type CreatedOcrExpense,
 } from '@/lib/agentbook-receipt-ocr';
 import { botLoc, botT, runWithBotLocale } from '@/lib/agentbook-bot-locale';
+import { classifySensitiveIds } from '@agentbook-core/sensitive-ids';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
@@ -2263,6 +2264,14 @@ function getBot(): Bot {
       }
     } catch (err) {
       console.warn('[billing] gate check failed open:', err);
+    }
+
+    // PR 4e C1: a checksum-valid TFN/SIN/SSN is refused HERE, before the
+    // adapter's own context/thread/memory writes, shortcuts or LLM calls see it.
+    // Nothing is stored. (Turn writers also redact, as a second line.)
+    if (classifySensitiveIds(text).refuse) {
+      await ctx.reply(botT('agent.employee_sensitive_refused'));
+      return;
     }
 
     // Load conversation context so the bot has memory across turns —
