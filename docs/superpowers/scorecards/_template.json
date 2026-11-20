@@ -13,6 +13,7 @@
     "postChecklist": "docs/superpowers/scorecards/pr-id-ux-postdeploy.md"
   },
   "launch": {
+    "_docsComment": "Give exactly one of docs (files this PR updates) or docsNone (a >=20 char reason a schema-only/no-docs PR changed none).",
     "docs": ["CLAUDE.md"],
     "rollback": "Revert the PR; additive schema columns stay and are unused.",
     "prodPlaywright": ["tests/e2e/mobile-app/capture.spec.ts"],

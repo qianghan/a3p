@@ -22,7 +22,8 @@ export interface Manifest {
   regression?: { vitest?: string[] };
   /** checklist: reviewed before merge (code-level consistency); postChecklist: visual checks in a real browser on the deployed build. */
   ux: { vitest?: string[]; playwright?: string[]; checklist: string; postChecklist?: string };
-  launch: { docs: string[]; rollback: string; prodPlaywright: string[]; playwrightConfig?: string };
+  /** docs: files this PR updates; docsNone: reason (>=20 chars) when it genuinely changes none. Exactly one. */
+  launch: { docs?: string[]; docsNone?: string; rollback: string; prodPlaywright: string[]; playwrightConfig?: string };
 }
 
 export interface VitestFile { passed: number; failed: number; skipped: number }
@@ -133,6 +134,12 @@ export function touchedGate(changed: string[], required: string[]): Pick<Gate, '
     : { status: 'pass', evidence: `updated: ${required.join(', ')}` };
 }
 
+/** L2: a declared docs list must be touched; docsNone passes with its stated reason. */
+export function docsGate(changed: string[], launch: Manifest['launch']): Pick<Gate, 'status' | 'evidence'> {
+  if (launch.docsNone !== undefined) return { status: 'pass', evidence: `no docs changed: ${launch.docsNone}` };
+  return touchedGate(changed, launch.docs ?? []);
+}
+
 export interface CheckRow { name: string; bucket: string }
 /** gh `pr checks --json name,bucket`. Quality Gates, CodeQL and Shell Tests (the DB-backed full suite) are mandatory. */
 export function ciGate(rows: CheckRow[], required = ['Quality Gates', 'CodeQL', 'Shell Tests']): Pick<Gate, 'status' | 'evidence'> {
@@ -163,7 +170,11 @@ export function validateManifest(m: Partial<Manifest> | null, exists: (p: string
   else if (!exists(m.ux.checklist)) e.push(`ux.checklist not found: ${m.ux.checklist}`);
   if (m.ux?.postChecklist && !exists(m.ux.postChecklist)) e.push(`ux.postChecklist not found: ${m.ux.postChecklist}`);
   if (!m.launch?.rollback?.trim()) e.push('launch.rollback must say how this PR is undone');
-  if (!m.launch?.docs?.length) e.push('launch.docs must list the docs this PR updates');
+  const hasDocs = !!m.launch?.docs?.length;
+  const hasNone = m.launch?.docsNone !== undefined;
+  if (hasDocs && hasNone) e.push('launch.docs and launch.docsNone are mutually exclusive: give exactly one');
+  else if (!hasDocs && !hasNone) e.push('launch.docs must list the docs this PR updates (or launch.docsNone must say why none changed)');
+  else if (hasNone && (typeof m.launch.docsNone !== 'string' || m.launch.docsNone.trim().length < 20)) e.push('launch.docsNone must be a reason of at least 20 characters');
   if (!m.launch?.prodPlaywright?.length) e.push('launch.prodPlaywright needs at least one prod e2e file');
   for (const p of [...(m.launch?.prodPlaywright ?? []), ...(m.ux?.playwright ?? []), ...(m.regression?.vitest ?? []), ...(m.ux?.vitest ?? [])]) {
     if (!exists(p)) e.push(`file not found: ${p}`);

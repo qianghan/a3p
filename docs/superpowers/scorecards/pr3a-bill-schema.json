@@ -1,6 +1,6 @@
 {
   "id": "pr3a-bill-schema",
-  "title": "PR 3a \u2014 additive bill schema",
+  "title": "PR 3a — additive bill schema",
   "goals": [
     {
       "id": "G1-bill-columns",
@@ -36,9 +36,7 @@
     "postChecklist": "docs/superpowers/scorecards/pr3a-bill-schema-ux-postdeploy.md"
   },
   "launch": {
-    "docs": [
-      "agentbook/skills/architecture.md"
-    ],
+    "docsNone": "Schema-only PR: no user-facing or developer docs changed; bills/employee docs landed with PRs 3bc/4b and #645.",
     "rollback": "Revert the PR. The added columns and tables are additive and nullable/defaulted; they stay in the database unused and existing bills are untouched.",
     "prodPlaywright": [
       "tests/e2e/mobile-app/bills.spec.ts"

@@ -2,4 +2,4 @@
 
 PR 4b has no UI, so there is no browser pass. The deployed behaviour is covered by `tests/e2e/mobile-app/employee-privacy.spec.ts`.
 
-- [ ] Nothing to check in a browser; the employee UI ships in PR 4c.
+- [x] Nothing to check in a browser; the employee UI ships in PR 4c.
