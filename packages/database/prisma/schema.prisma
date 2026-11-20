@@ -1525,6 +1525,7 @@ model AbTenantConfig {
   taxReservePercent       Float?
   taxReserveFixedCents    Int?
   basiqUserId             String? // Basiq's tenant-level user resource id (AU bank-sync), created lazily on first AU bank-connect attempt
+  trackInventory          Boolean  @default(false) // opt-in inventory tracking (PR 5A); gate on this flag, not businessType alone
 
   @@index([userId])
   @@schema("plugin_agentbook_core")
@@ -2267,6 +2268,48 @@ model AbBillLine {
   @@schema("plugin_agentbook_expense")
 }
 
+model AbInventoryItem {
+  id               String            @id @default(uuid())
+  tenantId         String
+  sku              String?
+  name             String
+  unit             String            @default("each")
+  costingMethod    String            @default("wac") // weighted average, fixed in v1
+  onHandQty        Decimal           @default(0) @db.Decimal(14, 4)
+  onHandValueCents Int               @default(0) // stock value in integer cents; avg cost is derived (value / qty)
+  reorderPoint     Decimal?          @db.Decimal(14, 4)
+  salePriceCents   Int?
+  isActive         Boolean           @default(true)
+  deletedAt        DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  movements        AbStockMovement[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId])
+  @@schema("plugin_agentbook_expense")
+}
+
+model AbStockMovement {
+  id             String          @id @default(uuid())
+  tenantId       String
+  itemId         String
+  item           AbInventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  date           DateTime
+  type           String // purchase | stock_sale | stock_sale_void | stock_adjust | opening
+  qty            Decimal         @db.Decimal(14, 4) // signed
+  valueCents     Int // signed
+  sourceType     String? // bill_line | invoice_line | ...
+  sourceId       String?
+  journalEntryId String?
+  createdAt      DateTime        @default(now())
+
+  @@index([tenantId])
+  @@index([itemId])
+  @@index([tenantId, sourceType, sourceId])
+  @@schema("plugin_agentbook_expense")
+}
+
 model AbBillPayment {
   id             String    @id @default(uuid())
   billId         String
@@ -2295,6 +2338,7 @@ model AbInvoiceLine {
   quantity    Float     @default(1)
   rateCents   Int
   amountCents Int
+  itemId      String? // AbInventoryItem.id (PR 5A); null = non-stock line
 
   @@index([tenantId])
   @@index([invoiceId])
