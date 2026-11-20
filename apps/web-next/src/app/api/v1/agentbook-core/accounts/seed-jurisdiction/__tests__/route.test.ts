@@ -40,7 +40,7 @@ describe('POST /agentbook-core/accounts/seed-jurisdiction', () => {
     const res = await POST(req());
     const json = await res.json();
 
-    expect(json.data.count).toBe(34);
+    expect(json.data.count).toBe(37); // +1500 Inventory, 3900 Opening Balance Equity, 5995 Shrinkage (PR 5A; AU COGS is the existing 5000)
     const codes = accountUpsert.mock.calls.map((c) => (c[0] as { create: { code: string } }).create.code);
     expect(codes).toContain('2100'); // GST Payable
     expect(codes).toContain('2300'); // Superannuation Payable
@@ -54,20 +54,20 @@ describe('POST /agentbook-core/accounts/seed-jurisdiction', () => {
     const res = await POST(req());
     const json = await res.json();
 
-    expect(json.data.count).toBe(34);
+    expect(json.data.count).toBe(38); // +1500, 3900, 5990 COGS, 5995 (PR 5A)
     const gstHst = accountUpsert.mock.calls.find((c) => (c[0] as { create: { code: string } }).create.code === '2100');
     expect((gstHst![0] as { create: { name: string } }).create.name).toBe('GST/HST Payable');
     const revenue = accountUpsert.mock.calls.find((c) => (c[0] as { create: { code: string } }).create.code === '4000');
     expect((revenue![0] as { create: { taxCategory?: string } }).create.taxCategory).toBe('Line 8000 - Professional income');
   });
 
-  it('seeds the real (33-account) US Schedule-C chart for jurisdiction=us', async () => {
+  it('seeds the real (37-account) US Schedule-C chart for jurisdiction=us', async () => {
     tenantConfigFindUnique.mockResolvedValue({ businessType: 'freelancer', jurisdiction: 'us' });
     const { POST } = await import('../route');
     const res = await POST(req());
     const json = await res.json();
 
-    expect(json.data.count).toBe(33);
+    expect(json.data.count).toBe(37); // +1500, 3900, 5990 COGS, 5995 (PR 5A)
     // Depreciation (6800) exists in the real pack but not in the old inline US_ACCOUNTS list.
     const depreciation = accountUpsert.mock.calls.find((c) => (c[0] as { create: { code: string } }).create.code === '6800');
     expect(depreciation).toBeDefined();
@@ -81,7 +81,7 @@ describe('POST /agentbook-core/accounts/seed-jurisdiction', () => {
     const json = await res.json();
 
     expect(res.status).toBe(200);
-    expect(json.data.count).toBe(33);
+    expect(json.data.count).toBe(37);
   });
 
   it.each(['us', 'ca', 'au', 'student'])(
