@@ -345,8 +345,11 @@ const AU_BUSINESS_SCHEDULE_2025 = {
         // and simply do not appear on the worksheet when unset.
         { fieldId: 'opening_stock', label: 'Opening stock', lineNumber: 'P8', type: 'currency', required: false, source: 'manual' },
         { fieldId: 'purchases_and_other_costs', label: 'Purchases and other costs', lineNumber: 'P8 L', type: 'currency', required: false, source: 'manual' },
-        { fieldId: 'closing_stock', label: 'Closing stock', lineNumber: 'P8 M', type: 'currency', required: false, source: 'manual' },
-        { fieldId: 'cost_of_sales', label: 'Cost of sales', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
+        // PR 5A: closing stock is the 1500 Inventory balance at year end, and
+        // cost of sales is NET of credits on 5000 COGS + 5995 shrinkage (a
+        // negative-stock true-up credits COGS; a debit-only sum overstated it).
+        { fieldId: 'closing_stock', label: 'Closing stock', lineNumber: 'P8 M', type: 'currency', required: false, source: 'auto', sourceQuery: 'account_balance:1500' },
+        { fieldId: 'cost_of_sales', label: 'Cost of sales', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'net_expense_categories:5000,5995' },
 
         { fieldId: 'foreign_resident_withholding', label: 'Foreign resident withholding expenses', lineNumber: 'P8', type: 'currency', required: false, source: 'manual' },
         { fieldId: 'contractor_subcontractor_commission', label: 'Contractor, sub-contractor and commission expenses', lineNumber: 'P8 F', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6400' },
@@ -540,6 +543,27 @@ export async function resolveSourceQuery(
   // has a single "All other expenses" line that nine of our accounts land on,
   // so without this the only way to fill it is to expose all nine as separate
   // fields — which is exactly the US-shaped schedule this replaced.
+  // Net (debit − credit) over several expense codes for the year.
+  if (query.startsWith('net_expense_categories:')) {
+    const codes = query.slice('net_expense_categories:'.length).split(',').map((c) => c.trim()).filter(Boolean);
+    if (codes.length === 0) return 0;
+    const result = await db.abJournalLine.aggregate({
+      _sum: { debitCents: true, creditCents: true },
+      where: { entry: { tenantId, date: { gte: yearStart, lte: yearEnd } }, account: { code: { in: codes } } },
+    });
+    return (result._sum.debitCents || 0) - (result._sum.creditCents || 0);
+  }
+
+  // Balance-sheet account balance (debit − credit) as at the year end.
+  if (query.startsWith('account_balance:')) {
+    const code = query.slice('account_balance:'.length).trim();
+    const result = await db.abJournalLine.aggregate({
+      _sum: { debitCents: true, creditCents: true },
+      where: { entry: { tenantId, date: { lte: yearEnd } }, account: { code } },
+    });
+    return (result._sum.debitCents || 0) - (result._sum.creditCents || 0);
+  }
+
   if (query.startsWith('expense_categories:')) {
     const codes = query.slice('expense_categories:'.length).split(',').map((c) => c.trim()).filter(Boolean);
     if (codes.length === 0) return 0;
