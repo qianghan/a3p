@@ -4,13 +4,15 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Users, Plus, Play, Loader2, Check, Landmark, FileText, CalendarClock, Download, AlertTriangle } from 'lucide-react';
 import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 import { splitCaDeductions, PERIODS_PER_YEAR } from '@/lib/payroll-engine';
+import Link from 'next/link';
 import { useT } from '@/hooks/use-t';
+import { frequencyLabelKey } from '@/lib/payroll-frequency';
 
 const API = '/api/v1/agentbook-payroll';
 
 interface Employee { id: string; name: string; payType: string; payRateCents: number; payFrequency: string; jurisdiction: string; region: string }
 interface Stub { id: string; employeeName: string; grossCents: number; federalTaxCents: number; stateTaxCents: number; ficaCents: number; netCents: number; sgCents: number }
-interface PayRun { id: string; periodStart: string; periodEnd: string; status: string; stubs: Stub[] }
+interface PayRun { id: string; periodStart: string; periodEnd: string; status: string; stubs: Stub[]; payDate?: string | null; payFrequency?: string | null }
 interface Deposit { id: string; form: string; periodLabel: string; amountCents: number; dueDate: string; status: string }
 interface YearEndForm { formType: string; employeeName: string; year: number; boxes: Record<string, number>; employeeId?: string }
 
@@ -168,6 +170,25 @@ export default function PayrollPage() {
     } finally { setBusy(false); }
   };
 
+  // PR 4c: one draft per frequency group from each employee's pay anchor.
+  const generateDrafts = async () => {
+    setBusy(true);
+    try {
+      await fetch(`${API}/pay-runs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ generate: 'drafts' }) });
+      setTab('runs');
+      await load();
+    } finally { setBusy(false); }
+  };
+  const processRun = async (id: string) => {
+    setBusy(true);
+    try { await fetch(`${API}/pay-runs/${id}/process`, { method: 'POST' }); await load(); } finally { setBusy(false); }
+  };
+  const deleteDraft = async (id: string) => {
+    setBusy(true);
+    try { await fetch(`${API}/pay-runs/${id}`, { method: 'DELETE' }); await load(); } finally { setBusy(false); }
+  };
+  const utcDay = (iso: string) => new Date(iso).toLocaleDateString(undefined, { timeZone: 'UTC' });
+
   const markDepositPaid = async (id: string) => {
     await fetch(`${API}/tax-deposits`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
     await load();
@@ -189,6 +210,9 @@ export default function PayrollPage() {
       <div className="flex items-center justify-between mb-1">
         <h1 className="text-xl font-bold text-foreground flex items-center gap-2"><Users className="w-5 h-5" /> {t('nav.payroll')}</h1>
         <div className="flex gap-2">
+          <button onClick={() => void generateDrafts()} disabled={busy || employees.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted disabled:opacity-50">
+            <CalendarClock className="w-4 h-4" /> {t('core_ui.generate_draft_pay_runs')}</button>
           <button onClick={() => { setTab('employees'); setShowForm((s) => !s); }} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border border-border hover:bg-muted">
             <Plus className="w-4 h-4" /> {t('core_ui.employee')}</button>
           <button onClick={() => void runPayroll()} disabled={busy || employees.length === 0}
@@ -231,7 +255,7 @@ export default function PayrollPage() {
               <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('common.name')} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               <input type="number" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder={t('core_ui.annual_salary')} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground" />
               <select value={freq} onChange={(e) => setFreq(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground capitalize">
-                {FREQ.map((f) => <option key={f} value={f}>{f}</option>)}
+                {FREQ.map((f) => <option key={f} value={f}>{t(frequencyLabelKey(f, juris))}</option>)}
               </select>
               <select value={juris} onChange={(e) => setJuris(e.target.value)} className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground">
                 {JURIS.map((j) => <option key={j.v} value={j.v}>{j.l}</option>)}
@@ -251,8 +275,8 @@ export default function PayrollPage() {
                 <div key={e.id} className="flex items-center justify-between px-4 py-3">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-medium">{e.name.slice(0, 2).toUpperCase()}</div>
-                    <div><p className="text-sm font-medium text-foreground">{e.name}</p>
-                      <p className="text-xs text-muted-foreground capitalize">{e.payFrequency} · {e.jurisdiction.toUpperCase()}{(e.jurisdiction === 'us' || e.jurisdiction === 'ca') && e.region ? ` · ${e.region}` : ''}</p></div>
+                    <div><Link href={`/payroll/employees/${e.id}`} className="text-sm font-medium text-foreground hover:text-primary hover:underline">{e.name}</Link>
+                      <p className="text-xs text-muted-foreground">{t(frequencyLabelKey(e.payFrequency, e.jurisdiction))} · {e.jurisdiction.toUpperCase()}{(e.jurisdiction === 'us' || e.jurisdiction === 'ca') && e.region ? ` · ${e.region}` : ''}</p></div>
                   </div>
                   <p className="text-sm font-medium text-foreground">{fmt$(e.payRateCents)}<span className="text-muted-foreground font-normal">/yr</span></p>
                 </div>
@@ -274,9 +298,28 @@ export default function PayrollPage() {
               return (
                 <div key={r.id} className="rounded-xl border border-border bg-card p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-medium text-foreground">{new Date(r.periodStart).toLocaleDateString()} – {new Date(r.periodEnd).toLocaleDateString()}</p>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{utcDay(r.periodStart)} – {utcDay(r.periodEnd)}</p>
+                      {(r.payDate || r.payFrequency) && (
+                        <p className="text-xs text-muted-foreground">
+                          {r.payDate && t('core_ui.pay_date_on', { date: utcDay(r.payDate) })}
+                          {r.payDate && r.payFrequency && ' · '}
+                          {r.payFrequency && t(frequencyLabelKey(r.payFrequency, tenantJurisdiction))}
+                        </p>
+                      )}
+                      {/* payDate stays the period end (no business-day rolling); statutory reports (4d) use it as-is. */}
+                      {r.payDate && [0, 6].includes(new Date(r.payDate).getUTCDay()) && (
+                        <p className="text-xs text-amber-700 dark:text-amber-400">{t('core_ui.pay_date_is_a_weekend')}</p>
+                      )}
+                    </div>
                     <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">
                       {r.status === 'paid' && <Check className="w-3.5 h-3.5" />}{r.status}</span>
+                    {r.status === 'draft' && (
+                      <span className="flex gap-2">
+                        <button onClick={() => void processRun(r.id)} disabled={busy} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted">{t('core_ui.process')}</button>
+                        <button onClick={() => void deleteDraft(r.id)} disabled={busy} className="text-xs px-2.5 py-1 rounded-md border border-border hover:bg-muted">{t('core_ui.delete_draft')}</button>
+                      </span>
+                    )}
                   </div>
                   <div className={`grid gap-3 mb-3 ${sg > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
                     <Mini label="Gross" value={fmt$(gross)} />
