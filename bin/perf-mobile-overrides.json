@@ -7,5 +7,9 @@
   "/app/chat": {
     "allowanceKb": 52,
     "reason": "Measured 154 kB on 2026-10-22 (baseline 106 kB, +48). Chat was rebuilt in PR 6 (history, plan cards, receipt cards, composer, formatter, keyboard hooks). Home's Slow-4G gate passes and chat has no timing gate of its own yet. Ratcheted at measured + 4 kB. What dominates the extra bytes has not been analysed."
+  },
+  "/app/docs": {
+    "allowanceKb": 45,
+    "reason": "Measured 176 kB on 2026-11-19 (baseline 135 kB, +41). PR 3bc added bill rows/sheet (already lazy-loaded, plus AiBanner) and sat exactly at 175 kB; the i18n catalog ships on every route and cannot be split per route (measured 2026-10), so programme PRs that add catalog keys (4c onwards) grow this route ~1 kB with no Docs code change. +5 kB headroom for 4d, 4e, 5A, 5B; revisit the catalog-size axes (-36 kB / -42 kB) before raising again."
   }
 }
