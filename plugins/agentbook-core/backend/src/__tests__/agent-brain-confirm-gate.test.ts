@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { buildTestContext } from './helpers/test-context';
 
+// @naap/billing costs ~7 s to load (real billing/Stripe graph) and agent-brain only
+// needs hasAddOn; stub it so the dynamic import of agent-brain stays fast.
+vi.mock('@naap/billing', () => ({ hasAddOn: vi.fn(async () => false) }));
+
 /**
  * G-010: confirm gate — destructive ops must NOT execute before user confirms.
  *

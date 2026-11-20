@@ -20,6 +20,7 @@ import {
   type ReceiptOcrResult, type CreatedOcrExpense,
 } from '@/lib/agentbook-receipt-ocr';
 import { botLoc, botT, runWithBotLocale } from '@/lib/agentbook-bot-locale';
+import { classifySensitiveIds, redactSensitiveDeep } from '@agentbook-core/sensitive-ids';
 import { handleAgentMessage } from '@agentbook-core/agent-brain';
 import { buildTaxReviewCtx, callGemini, classifyAndExecuteV1, classifyOnly, executeClassification } from '@agentbook-core/server';
 import { reconcileSkills, SKILL_QUERY } from '@agentbook-core/skill-source';
@@ -2265,6 +2266,14 @@ function getBot(): Bot {
       console.warn('[billing] gate check failed open:', err);
     }
 
+    // PR 4e C1: a checksum-valid TFN/SIN/SSN is refused HERE, before the
+    // adapter's own context/thread/memory writes, shortcuts or LLM calls see it.
+    // Nothing is stored. (Turn writers also redact, as a second line.)
+    if (classifySensitiveIds(text).refuse) {
+      await ctx.reply(botT('agent.employee_sensitive_refused'));
+      return;
+    }
+
     // Load conversation context so the bot has memory across turns —
     // references like "the second one" / "INV-007" / "yes" resolve to
     // entities the bot just mentioned; pending slot fills (e.g. asked
@@ -3460,8 +3469,14 @@ function getBot(): Bot {
         },
       });
       text = cacheResult.transcript;
+      // PR 4e C1: a spoken TFN/SIN/SSN is refused exactly like typed text —
+      // not cached, not echoed, not sent to the agent loop / LLM / brain.
+      if (cacheResult.sensitive) {
+        await ctx.reply(botT('agent.employee_sensitive_refused'));
+        return;
+      }
     } catch (err) {
-      console.error('[telegram/voice] failed:', err);
+      console.error('[telegram/voice] failed:', err instanceof Error ? err.name : 'unknown');
     }
 
     if (!text) {
@@ -3789,6 +3804,12 @@ function getBot(): Bot {
     const best = photos[photos.length - 1];
     const caption = ctx.message.caption || null;
     const arrivedAt = Date.now();
+    // PR 4e C1: a caption is user text — same gate as a typed message, before
+    // the batch state (AbUserMemory), OCR prompt or any LLM call sees it.
+    if (caption && classifySensitiveIds(caption).refuse) {
+      await ctx.reply(botT('agent.employee_sensitive_refused'));
+      return;
+    }
 
     // PR Phase 8: gate OCR by ocr_scans quota. Block at limit;
     // increment on success (best-effort, swallows errors).
@@ -3905,6 +3926,10 @@ function getBot(): Bot {
 
   bot.on('message:document', async (ctx) => {
     const tenantId = await resolveTenantId(ctx.chat.id);
+    if (ctx.message.caption && classifySensitiveIds(ctx.message.caption).refuse) {
+      await ctx.reply(botT('agent.employee_sensitive_refused'));
+      return;
+    }
     const doc = ctx.message.document;
     const mimeType = doc.mime_type || '';
     if (!mimeType.includes('pdf') && !mimeType.includes('image')) {
@@ -6461,7 +6486,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await db.abWebhookDeadLetter.create({
           data: {
             tenantId: idemTenantId, // may be null if tenant resolution failed
-            payload: update as never,
+            payload: redactSensitiveDeep(update) as never, // PR 4e: no raw TFN/SIN/SSN in the dead letter
             error: errMsg.slice(0, 2000), // cap pathologically long stacks
             attempts: attemptsTried,
           },

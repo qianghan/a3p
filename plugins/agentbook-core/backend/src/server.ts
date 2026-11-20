@@ -37,6 +37,7 @@ import { cleanClientName } from './client-name.js';
 import { getCashPosition, isCashBalanceQuestion } from './cash-position.js';
 import { formatCurrency, formatMoney } from '@agentbook/i18n';
 import { replyT } from './reply-locale.js';
+import { agentFrequencyLabelKey, containsSensitiveTaxId, editToPutBody, matchEmployees, mentionsSensitiveField, parseEmployeeEdit, redactSensitive } from './employee-chat.js';
 import { resolveReplyLocale } from './reply-language.js';
 import {
   BATCH_SIZE, TOKENS_PER_ROW, WRITE_CONCURRENCY, buildBatchPrompt, parseBatchDecisions, decide, formatCategorizeReply,
@@ -4924,6 +4925,92 @@ async function _executeClassificationCore(
     }
   }
 
+  // ── PR 4e (R-EMP-5): employee / pay-frequency chat ──────────────────────
+  // Reads select only non-sensitive AbEmployee columns (never AbEmployeeSensitive).
+  // Edits PUT employees/[id] so they take the exact zod validation + AbEmployeeChange
+  // audit the profile screen uses. Replies never echo tax ids or bank details.
+  if (selectedSkill.name === 'query-employee' || selectedSkill.name === 'update-employee' || selectedSkill.name === 'generate-pay-run-drafts') {
+    const skill = selectedSkill.name as string;
+    const reply = async (message: string, data: unknown = null, conf = confidence, question = redactSensitive(text)) => {
+      await db.abConversation.create({ data: { tenantId, question, answer: message, queryType: 'agent', channel, skillUsed: skill } });
+      return { selectedSkill, extractedParams, confidence: conf, skillUsed: skill, skillResponse: { data }, responseData: { message, actions: [], chartData: null, skillUsed: skill, confidence: conf, latencyMs: Date.now() - startTime } };
+    };
+    const payrollBase = baseUrls['/api/v1/agentbook-payroll'] || 'http://localhost:3000';
+    const label = (freq: string, j: string) => t(agentFrequencyLabelKey(freq, j));
+    const rate = (e: { payRateCents: number; payType: string }) =>
+      t(e.payType === 'hourly' ? 'agent.employee_rate_hourly' : 'agent.employee_rate_salary', { amount: tenantMoney(e.payRateCents) });
+    try {
+      if (skill !== 'generate-pay-run-drafts' && (mentionsSensitiveField(text) || containsSensitiveTaxId(text))) {
+        // The refusal says nothing was saved — so the question is not stored either.
+        return await reply(t('agent.employee_sensitive_refused'), null, confidence, '[sensitive employee request withheld]');
+      }
+      if (skill === 'generate-pay-run-drafts') {
+        const res = await fetch(`${payrollBase}/api/v1/agentbook-payroll/pay-runs`, { method: 'POST', headers: brainHeaders(tenantId), body: JSON.stringify({ generate: 'drafts' }) });
+        const body: any = await res.json().catch(() => null);
+        if (!res.ok || !body?.success) {
+          if (body?.code === 'period_already_processed') return await reply(t('agent.pay_run_drafts_processed', { page: PAGE_PAYROLL }), null, 0);
+          if (res.status === 400 && /no active employees/.test(String(body?.error))) return await reply(t('agent.employee_none', { page: PAGE_PAYROLL }));
+          return await reply(t('agent.pay_run_drafts_failed', { page: PAGE_PAYROLL }), null, 0);
+        }
+        const runs: any[] = body.data?.runs ?? [];
+        const juris = String(classification.tenantConfig?.jurisdiction || '');
+        const lines = runs.map((r) => t('agent.pay_run_draft_line', {
+          frequency: label(String(r.payFrequency || 'biweekly'), juris),
+          start: new Date(r.periodStart).toLocaleDateString(replyLocale, { timeZone: 'UTC' }),
+          end: new Date(r.periodEnd).toLocaleDateString(replyLocale, { timeZone: 'UTC' }),
+          payDate: new Date(r.payDate ?? r.periodEnd).toLocaleDateString(replyLocale, { timeZone: 'UTC' }),
+          count: (r.stubs ?? []).length,
+        }));
+        return await reply(`${t('agent.pay_run_drafts_header', { count: runs.length })}\n${lines.join('\n')}\n\n${t('agent.pay_run_drafts_review', { page: PAGE_PAYROLL })}`, { runIds: runs.map((r) => r.id) });
+      }
+
+      const employees = await db.abEmployee.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, name: true, payRateCents: true, payType: true, payFrequency: true, jurisdiction: true },
+        orderBy: { name: 'asc' },
+      });
+      if (employees.length === 0) return await reply(t('agent.employee_none', { page: PAGE_PAYROLL }));
+      const matched = matchEmployees(text, employees);
+
+      if (skill === 'query-employee') {
+        if (matched.length === 1) {
+          const e = matched[0];
+          const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+          const next = await db.abPayRun.findFirst({
+            where: { tenantId, status: 'draft', payDate: { gte: today }, stubs: { some: { employeeId: e.id } } },
+            orderBy: { payDate: 'asc' }, select: { payDate: true },
+          });
+          const nextLine = next?.payDate
+            ? t('agent.employee_next_pay', { date: new Date(next.payDate).toLocaleDateString(replyLocale, { timeZone: 'UTC' }) })
+            : t('agent.employee_no_next_pay');
+          return await reply(`${t('agent.employee_detail', { name: e.name, frequency: label(e.payFrequency, e.jurisdiction), rate: rate(e) })}\n${nextLine}`, { employeeId: e.id, payFrequency: e.payFrequency });
+        }
+        const list = (matched.length > 1 ? matched : employees).slice(0, 20)
+          .map((e) => `• ${e.name} — ${label(e.payFrequency, e.jurisdiction)}, ${rate(e)}`).join('\n');
+        return await reply(`${t('agent.employee_list_header', { count: matched.length > 1 ? matched.length : employees.length })}\n${list}`, { count: employees.length });
+      }
+
+      // update-employee (reached only after the user confirmed the plan card)
+      const edit = parseEmployeeEdit(text);
+      const put = editToPutBody(edit);
+      if (!put) return await reply(t('agent.employee_edit_unclear'), null, 0);
+      if (matched.length === 0) return await reply(t('agent.employee_not_found', { names: employees.slice(0, 8).map((e) => e.name).join(', ') }), null, 0);
+      if (matched.length > 1) return await reply(t('agent.employee_ambiguous', { names: matched.map((e) => e.name).join(', ') }), null, 0);
+      const e = matched[0];
+      const res = await fetch(`${payrollBase}/api/v1/agentbook-payroll/employees/${encodeURIComponent(e.id)}`, { method: 'PUT', headers: brainHeaders(tenantId), body: JSON.stringify(put) });
+      const body: any = await res.json().catch(() => null);
+      if (!res.ok || !body?.success) return await reply(t('agent.employee_update_failed', { page: PAGE_PAYROLL }), null, 0);
+      const after = body.data ?? {};
+      const msg = edit.kind === 'payFrequency'
+        ? t('agent.employee_updated_frequency', { name: e.name, from: label(e.payFrequency, e.jurisdiction), to: label(String(after.payFrequency ?? edit.value), String(after.jurisdiction ?? e.jurisdiction)) })
+        : t('agent.employee_updated_rate', { name: e.name, from: rate(e), to: rate({ payRateCents: Number(after.payRateCents ?? put.payRateCents), payType: String(after.payType ?? e.payType) }) });
+      return await reply(`${msg}\n${t('agent.employee_next_draft_note')}`, { employeeId: e.id, field: edit.kind });
+    } catch (err) {
+      console.error(`[${skill}] error:`, err instanceof Error ? err.name : 'unknown');
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: skill, skillResponse: null, responseData: { message: t('agent.employee_error'), actions: [], chartData: null, skillUsed: skill, confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
   // INTERNAL handler: cpa-review — quick books-health check via direct DB
   if (selectedSkill.name === 'cpa-review') {
     try {
@@ -4944,7 +5031,7 @@ async function _executeClassificationCore(
       const message = findings.length === 0
         ? `✅ **Books look healthy (${score}/100).** No issues found in a quick review. Open the **Accountant** page for a full report.`
         : `**Books health: ${score}/100.** Top items:\n\n${findings.join('\n')}\n\nOpen the **Accountant** page for the full review.`;
-      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'cpa-review' } });
+      await db.abConversation.create({ data: { tenantId, question: redactSensitive(text), answer: message, queryType: 'agent', channel, skillUsed: 'cpa-review' } });
       return { selectedSkill, extractedParams, confidence, skillUsed: 'cpa-review', skillResponse: { data: { score } }, responseData: { message, actions: [], chartData: null, skillUsed: 'cpa-review', confidence, latencyMs: Date.now() - startTime } };
     } catch (err) {
       console.error('[cpa-review] error:', err);

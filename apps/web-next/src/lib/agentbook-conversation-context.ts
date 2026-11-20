@@ -13,6 +13,7 @@
  * resolve to an entity from yesterday's conversation.
  */
 
+import { redactSensitiveIds } from '@agentbook-core/sensitive-ids';
 import 'server-only';
 import { prisma as db } from '@naap/database';
 
@@ -139,6 +140,8 @@ export function appendTurn(
   text: string,
   now: Date = new Date(),
 ): ConversationContext {
+  // PR 4e C1: TFN/SIN/SSN never stored (and never replayed to the LLM) in clear.
+  text = redactSensitiveIds(text);
   const trimmed = text.length > 300 ? text.slice(0, 297) + '...' : text;
   const turn: ConversationTurn = { role, text: trimmed, at: now.toISOString() };
   const recentTurns = [...ctx.recentTurns, turn].slice(-MAX_RECENT_TURNS);

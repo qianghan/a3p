@@ -19,6 +19,7 @@
  * user might retry, and pinning the failure would make retries useless.
  */
 
+import { classifySensitiveIds, redactSensitiveIds } from '@agentbook-core/sensitive-ids';
 import 'server-only';
 import { prisma as db } from '@naap/database';
 
@@ -41,6 +42,11 @@ export interface VoiceCacheResult {
   transcript: string | null;
   /** True if served from cache (no Gemini bill). */
   cached: boolean;
+  /**
+   * PR 4e: the transcript carried a checksum-valid personal TFN/SIN/SSN. Then
+   * nothing is cached and `transcript` is null — the caller must refuse.
+   */
+  sensitive?: boolean;
 }
 
 /**
@@ -67,7 +73,13 @@ export async function getOrTranscribeVoice(
   }
 
   // 2. Cache miss — call the live transcriber.
-  const transcript = await transcribe();
+  const raw = await transcribe();
+  if (raw && classifySensitiveIds(raw).refuse) {
+    // Gate BEFORE the cache write: the raw transcript never leaves this function.
+    return { transcript: null, cached: false, sensitive: true };
+  }
+  // Anything stored or returned is redacted (broad, checksum-based).
+  const transcript = raw ? redactSensitiveIds(raw) : raw;
   if (!transcript) {
     // Don't cache failures — the user might retry and we want them
     // to actually exercise Gemini again.

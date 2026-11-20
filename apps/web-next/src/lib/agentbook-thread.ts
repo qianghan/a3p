@@ -19,6 +19,7 @@
  * key — those will be retired in PR 2 (focused-entity migration).
  */
 
+import { redactSensitiveIds } from '@agentbook-core/sensitive-ids';
 import 'server-only';
 import { prisma as db } from '@naap/database';
 
@@ -126,6 +127,8 @@ export async function addTurn(
   text: string,
   intent?: string,
 ): Promise<ConvThread> {
+  // PR 4e C1: TFN/SIN/SSN never stored (and never replayed to the LLM) in clear.
+  text = redactSensitiveIds(text);
   const trimmed = text.length > MAX_TURN_LEN ? text.slice(0, MAX_TURN_LEN - 3) + '...' : text;
   const turn: ThreadTurn = { role, text: trimmed, at: new Date().toISOString(), intent };
   const next: ConvThread = {
