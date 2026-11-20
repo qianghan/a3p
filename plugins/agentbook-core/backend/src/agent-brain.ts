@@ -29,6 +29,7 @@ import { answerTaxQuestionnaire, cancelTaxQuestionnaire, type CoreResult } from 
 import { ensureAdvisorPersona, buildAdvisorVoice, composeFirstContact, adaptAdvisorStyle, personaPublicView, isHumanChannel } from './advisor-persona.js';
 import { isReviewInterceptable } from './review-interception.js';
 import { replyT } from './reply-locale.js';
+import { agentFrequencyLabelKey, containsSensitiveTaxId, parseEmployeeEdit, redactSensitive } from './employee-chat.js';
 import { resolveReplyLocale } from './reply-language.js';
 
 // Deterministic local engagement fallback when LLM is unreachable.
@@ -803,10 +804,19 @@ function fmtConfirmMoney(cents: number): string {
   })}`;
 }
 
-function describeDestructiveAction(classification: any, fallbackText: string): string {
+function describeDestructiveAction(classification: any, fallbackText: string, t?: (k: string, v?: Record<string, unknown>) => string): string {
   const name = classification?.selectedSkill?.name || 'unknown';
   const params = classification?.extractedParams || {};
   switch (name) {
+    case 'update-employee': {
+      // PR 4e — the user confirms exactly which field changes. A sensitive
+      // ask never reaches here with a value (refused upstream); never echo text.
+      const edit = parseEmployeeEdit(fallbackText);
+      if (!t) return 'Update employee pay details';
+      if (edit.kind === 'payFrequency') return t('agent.employee_confirm_frequency', { frequency: t(agentFrequencyLabelKey(edit.value, String(classification?.tenantConfig?.jurisdiction || ''))) });
+      if (edit.kind === 'payRateCents') return t('agent.employee_confirm_rate');
+      return t('agent.employee_confirm_generic');
+    }
     case 'send-invoice':
       return params.invoiceId
         ? `Send invoice ${params.invoiceId} to the client`
@@ -1163,6 +1173,18 @@ export async function handleAgentMessage(
   req: AgentRequest,
   ctx: AgentContext,
 ): Promise<AgentResponse> {
+  // PR 4e — a TFN/SIN/SSN (or bank/member number) typed into chat is refused
+  // BEFORE anything sees it: no classification, no LLM call, no session, no
+  // memory. The one AbConversation row written stores the redacted text.
+  if (req.text && containsSensitiveTaxId(req.text)) {
+    const tenantConfig = await db.abTenantConfig.findFirst({ where: { userId: req.tenantId } }).catch(() => null);
+    const replyLocale = resolveReplyLocale({ text: redactSensitive(req.text), tenantLocale: (tenantConfig as { locale?: string | null } | null)?.locale ?? null });
+    const message = replyT({ locale: replyLocale })('agent.employee_sensitive_refused');
+    await db.abConversation.create({
+      data: { tenantId: req.tenantId, question: redactSensitive(req.text), answer: message, queryType: 'agent', channel: req.channel || 'api', skillUsed: 'sensitive-refused' },
+    }).catch(() => {});
+    return buildResponse({ replyLocale, message, skillUsed: 'sensitive-refused', confidence: 1, latencyMs: 0 });
+  }
   const res = await handleAgentMessageCore(req, ctx);
   try {
     // Every conversational channel (web, Telegram, and any future WhatsApp/MCP
@@ -2164,7 +2186,7 @@ async function handleAgentMessageCore(
     // skill.
     const escalateLowConfidence = shouldEscalateOnConfidence(classification);
     if (classification.confirmBefore || escalateLowConfidence) {
-      const desc = describeDestructiveAction(classification, text);
+      const desc = describeDestructiveAction(classification, text, t as any);
       // When the gate fires because confidence is low (not because the skill
       // is intrinsically destructive), prepend a clarifying lead-in. The
       // user sees a clear "I'm not sure" framing rather than the standard

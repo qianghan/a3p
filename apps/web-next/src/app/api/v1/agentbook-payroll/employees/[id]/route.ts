@@ -10,7 +10,8 @@
  *
  * Callers audited before going strict (2026-11-19): no client sends PUT to
  * this route today — payroll page and e2e only POST /employees; mobile and
- * chat skills read employees directly.
+ * chat skills read employees directly. PR 4e: the chat `update-employee` skill
+ * PUTs here with { payFrequency } or { payRateCents } only (never sensitive keys).
  */
 
 import 'server-only';

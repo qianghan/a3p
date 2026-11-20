@@ -144,7 +144,7 @@ The agent brain powers all conversational AI via Telegram, web, and API. Single 
 
 **Key models:** `AbAgentSession` (plan state), `AbUserMemory` (confidence-decayed learning), `AbSkillManifest` (skill registry), `AbConversation` (history + feedback)
 
-**Skills (84 built-in, by category):** tax (23), invoicing (19), finance (15), bookkeeping (15), student (5), insights (3), planning (1), personal-finance (1), tax_benefits (1), observability (1). Full manifest: `plugins/agentbook-core/backend/src/built-in-skills.ts`.
+**Skills (88 built-in, by category):** tax (23), invoicing (19), finance (18), bookkeeping (16), student (5), insights (3), planning (1), personal-finance (1), tax_benefits (1), observability (1). Full manifest: `plugins/agentbook-core/backend/src/built-in-skills.ts`.
 
 **Specs & Plans:**
 - Design: `docs/superpowers/specs/2026-04-14-agent-brain-v2-design.md`

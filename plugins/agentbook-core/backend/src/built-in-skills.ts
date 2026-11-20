@@ -1,5 +1,16 @@
 import { BUSINESS_PHRASE_PATTERN, CREATE_INVOICE_TRIGGER_PATTERN, INVOICE_PAID_TRIGGER_PATTERNS, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN, TAX_FAST_TRACK_TRIGGER_PATTERNS } from './skill-routing.js';
 
+/**
+ * PR 4e — "change Jane to fortnightly", "set Jane's rate to $80k", "update
+ * Jane's SSN" (the last is routed here only to be refused). An edit verb plus
+ * a payroll field/frequency word.
+ */
+export const EMPLOYEE_EDIT_PATTERN =
+  "\\b(change|set|switch|move|update|put|raise|lower|make)\\b.{0,40}\\b(fortnightly|bi-?\\s?weekly|weekly|semi-?\\s?monthly|monthly|pay ?rate|rate|salary|wage|pay frequency|tfn|sin|ssn|tax file number|social (security|insurance) number|bank account|super member number)\\b";
+/** PR 4e — "set up next pay runs", "generate draft pay runs". */
+export const PAY_RUN_DRAFTS_PATTERN =
+  "\\b(set ?up|generate|create|prepare|draft)\\b.{0,30}\\bpay ?runs?\\b|\\bnext pay ?runs?\\b|\\bdraft pay ?runs?\\b";
+
 export const BUILT_IN_SKILLS = [
   {
     // PR-1 (personal-finance parity), tightened post-review: array position
@@ -77,7 +88,9 @@ export const BUILT_IN_SKILLS = [
     // negative lookahead for BUSINESS_PHRASE_PATTERN so business-flagged
     // language ("...for the business from my checking account") still wins
     // record-expense even though it mentions a personal account.
-    excludePatterns: ['\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b',
+    excludePatterns: [
+      // PR 4e — "set Jane's rate to $80k" is an employee pay-rate edit, not a purchase.
+      '\\b(set|change|raise|lower|update|make)\\b.{0,40}\\b(pay ?rate|rate|salary|wage)\\b','\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b',
       // Anchored at ^: anyMatch()'s test() retries the pattern at every
       // start offset in the string, so an unanchored pair of lookaheads
       // (?=.*X)(?!.*Y) can pass by evaluating "the rest of the string from
@@ -284,7 +297,7 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     ],
     excludePatterns: [
       // Pronouns and judgements are not vendor names.
-      '^(?:this|that|it|there|here|everything|nothing|which|what|who|why|how)\\b',
+      '^(?:this|that|it|there|here|everything|nothing|which|what|who|why|how|when|where)\\b',
       '\\b(?:is|was)\\s+(?:fine|ok|okay|right|wrong|correct|good|bad|done|ready|personal|business)\\b',
     ],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
@@ -836,7 +849,7 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     description: 'Answer payroll questions — who is on payroll, how many employees, when the last pay run was and its totals.',
     category: 'finance',
     triggerPatterns: ['payroll', 'who.*payroll', 'employees', 'last payroll', 'pay run', 'who.*pay'],
-    excludePatterns: ['run payroll', 'process payroll'],
+    excludePatterns: ['run payroll', 'process payroll', EMPLOYEE_EDIT_PATTERN, PAY_RUN_DRAFTS_PATTERN, 'pay frequency', 'pay rate', 'next pay ?date', "'s (pay|rate|salary|wage|frequency)", 'list.*employees', 'show.*employees', 'how often.*paid', 'when.*(is|are).*paid'],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
@@ -845,6 +858,39 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     description: 'Prepare a payroll run for the current period — compute gross, withholding, and net for each employee as a draft to review and process on the Payroll page.',
     category: 'finance',
     triggerPatterns: ['run payroll', 'process payroll', 'pay.*employees', 'do payroll'],
+    excludePatterns: [EMPLOYEE_EDIT_PATTERN, PAY_RUN_DRAFTS_PATTERN],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  // PR 4e (R-EMP-5) — employee / pay-frequency chat. Reads never touch
+  // AbEmployeeSensitive; edits are non-sensitive fields only, confirmed first,
+  // and go through PUT employees/[id] (same zod validation + audit as the UI).
+  {
+    name: 'query-employee',
+    description: "Answer questions about one employee or list employees — pay frequency, pay rate, next scheduled pay date. Never tax ids or bank details.",
+    category: 'finance',
+    triggerPatterns: ['pay frequency', 'pay rate', 'next pay ?date', 'when.*(is|are).*paid', "'s (pay|rate|salary|wage|frequency)", 'list.*employees', 'show.*employees', 'how often.*paid'],
+    excludePatterns: [EMPLOYEE_EDIT_PATTERN, PAY_RUN_DRAFTS_PATTERN],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'update-employee',
+    description: "Change an employee's pay frequency or pay rate (applies from the next draft pay run). Tax ids, bank and super details can only be changed on the employee profile screen.",
+    category: 'finance',
+    triggerPatterns: [EMPLOYEE_EDIT_PATTERN],
+    // An edit verb + "monthly"/"rate" also appears in budget, recurring-invoice,
+    // reminder and tax asks — those keep their own skills.
+    excludePatterns: [PAY_RUN_DRAFTS_PATTERN, '\\b(budget|invoice|expense|recurring|reminder|goal|subscription|rent|bill|tax rate|exchange rate|mileage|hourly rate for|client|estimate|savings)\\b'],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+    confirmBefore: true,
+  },
+  {
+    name: 'generate-pay-run-drafts',
+    description: 'Set up the next draft pay runs — one per pay-frequency group, with pay dates — to review and process on the Payroll page.',
+    category: 'finance',
+    triggerPatterns: [PAY_RUN_DRAFTS_PATTERN],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
