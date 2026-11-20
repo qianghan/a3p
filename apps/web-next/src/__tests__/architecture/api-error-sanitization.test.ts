@@ -157,7 +157,7 @@ describe('API responses do not echo unexpected error text', () => {
     expect(isPublicError(new bank.BankMatchError('No such transaction.', 'txn_not_found'))).toBe(true);
     expect(isPublicError(new invoice.InvoicePayLinkError('Connect account not ready.'))).toBe(true);
     expect(isPublicError(new admin.HttpError(403, 'not authorized'))).toBe(true);
-  });
+  }, 30_000); // cold dynamic import of four lib graphs: >5s on a loaded CI runner, not a failure of the contract
 
   it('no route passes a raw-derived message to the platform error helpers', () => {
     // A third shape, on the inherited platform routes: a local built from the
@@ -191,7 +191,7 @@ describe('API responses do not echo unexpected error text', () => {
     const src = readFileSync(join(ROOT, 'apps/web-next/src/lib/api/teams.ts'), 'utf8');
     expect(stripComments(src)).not.toMatch(/throw new Error\(/);
     expect(isPublicError(new (class extends (await import('@/lib/api-error')).PublicError {})('x'))).toBe(true);
-  });
+  }, 30_000); // cold dynamic import, as above
 
   it('every route that sanitizes actually imports the helper', () => {
     const missing = files

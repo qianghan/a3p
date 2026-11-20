@@ -37,9 +37,10 @@ describe('Items page', () => {
     render(withShell(<ItemsPage />, 'en'));
     const row = await screen.findByTestId('item-row');
     expect(row.textContent).toContain('15 each');
-    expect(row.textContent).toContain('$90.00');
+    // The harness formatCurrency renders `$<cents>`: proves the shell's locale-bound formatter is used.
+    expect(row.textContent).toContain('$9000');
     expect(row.textContent).toContain('Low stock');
-    expect(screen.getByTestId('items-total-value').textContent).toBe('$90.00');
+    expect(screen.getByTestId('items-total-value').textContent).toBe('$9000');
   });
 
   it('a duplicate SKU shows the localized 409 message', async () => {

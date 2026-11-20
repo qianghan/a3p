@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Package, Plus, X } from 'lucide-react';
 import { ExpenseTabs } from '../components/ExpenseTabs';
-import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { useI18n } from '@naap/plugin-sdk';
 
@@ -39,7 +38,7 @@ export function inventoryErrorKey(status: number, code?: string): string {
 type Dialog = null | { kind: 'new' } | { kind: 'opening' | 'adjust'; item: InventoryItem };
 
 export const ItemsPage: React.FC = () => {
-  const { t, parseAmount } = useI18n();
+  const { t, parseAmount, formatCurrency } = useI18n();
   const currency = useTenantCurrency();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -138,7 +137,7 @@ export const ItemsPage: React.FC = () => {
         <div className="grid grid-cols-2 gap-3 mb-4">
           <div className="rounded-lg border border-border p-3">
             <div className="text-xs text-muted-foreground">{t('expenses_ui.items_stock_value')}</div>
-            <div data-testid="items-total-value" className="text-lg font-semibold">{formatMoney(summary.totalValueCents, currency)}</div>
+            <div data-testid="items-total-value" className="text-lg font-semibold">{formatCurrency(summary.totalValueCents, currency)}</div>
           </div>
           <div className="rounded-lg border border-border p-3">
             <div className="text-xs text-muted-foreground">{t('expenses_ui.items_low_stock')}</div>
@@ -173,8 +172,8 @@ export const ItemsPage: React.FC = () => {
                     {i.negative && <span className="ml-1 text-xs rounded-full bg-destructive/10 text-destructive px-2">{t('expenses_ui.items_negative_stock')}</span>}
                   </td>
                   <td className="py-2 pr-2 text-right tabular-nums">{i.onHandQty} {i.unit}</td>
-                  <td className="py-2 pr-2 text-right tabular-nums">{formatMoney(i.onHandValueCents, currency)}</td>
-                  <td className="py-2 pr-2 text-right tabular-nums">{i.avgCostCents == null ? '—' : formatMoney(i.avgCostCents, currency)}</td>
+                  <td className="py-2 pr-2 text-right tabular-nums">{formatCurrency(i.onHandValueCents, currency)}</td>
+                  <td className="py-2 pr-2 text-right tabular-nums">{i.avgCostCents == null ? '—' : formatCurrency(i.avgCostCents, currency)}</td>
                   <td className="py-2 text-right whitespace-nowrap">
                     <button type="button" className="text-xs text-primary mr-2" onClick={() => open({ kind: 'opening', item: i })}>{t('expenses_ui.items_opening_stock')}</button>
                     <button type="button" className="text-xs text-primary mr-2" onClick={() => open({ kind: 'adjust', item: i })}>{t('expenses_ui.items_adjust')}</button>
