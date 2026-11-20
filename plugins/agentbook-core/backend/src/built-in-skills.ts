@@ -7,6 +7,14 @@ import { BUSINESS_PHRASE_PATTERN, CREATE_INVOICE_TRIGGER_PATTERN, INVOICE_PAID_T
  */
 export const EMPLOYEE_EDIT_PATTERN =
   "\\b(change|set|switch|move|update|put|raise|lower|make)\\b.{0,40}\\b(fortnightly|bi-?\\s?weekly|weekly|semi-?\\s?monthly|monthly|pay ?rate|rate|salary|wage|pay frequency|tfn|sin|ssn|tax file number|social (security|insurance) number|bank account|super member number)\\b";
+/**
+ * A question about an employee's pay terms, in en / fr-CA / zh-CN. Deliberately
+ * NOT a bare 工资 ("工资到账 5000" records income) nor a bare "paid"/"pay"
+ * ("how much did I pay Shell" is an expense query).
+ * Mirrored in consultation-triage.ts so these questions reach the skill layer.
+ */
+export const EMPLOYEE_QUERY_PATTERN =
+  "how often\\b.{0,40}\\bpay|\\bpaid (weekly|bi-?\\s?weekly|fortnightly|semi-?\\s?monthly|monthly)\\b|fr[ée]quence (de |des )?(la )?(paie|paye|r[ée]mun[ée]ration)|fr[ée]quence.{0,40}pay[ée]|taux (de paie|de r[ée]mun[ée]ration|horaire)|\\b(liste|affiche|montre)[a-z]*\\b.{0,20}employ[ée]|发薪|薪资频率|工资频率|多久.{0,6}(发|付).{0,3}(工资|薪)|(列出|显示|查看).{0,6}员工|员工.{0,8}(频率|工资|薪|名单|列表)";
 /** PR 4e — "set up next pay runs", "generate draft pay runs". */
 export const PAY_RUN_DRAFTS_PATTERN =
   "\\b(set ?up|generate|create|prepare|draft)\\b.{0,30}\\bpay ?runs?\\b|\\bnext pay ?runs?\\b|\\bdraft pay ?runs?\\b";
@@ -849,7 +857,7 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     description: 'Answer payroll questions — who is on payroll, how many employees, when the last pay run was and its totals.',
     category: 'finance',
     triggerPatterns: ['payroll', 'who.*payroll', 'employees', 'last payroll', 'pay run', 'who.*pay'],
-    excludePatterns: ['run payroll', 'process payroll', EMPLOYEE_EDIT_PATTERN, PAY_RUN_DRAFTS_PATTERN, 'pay frequency', 'pay rate', 'next pay ?date', "'s (pay|rate|salary|wage|frequency)", 'list.*employees', 'show.*employees', 'how often.*paid', 'when.*(is|are).*paid'],
+    excludePatterns: [EMPLOYEE_QUERY_PATTERN, 'run payroll', 'process payroll', EMPLOYEE_EDIT_PATTERN, PAY_RUN_DRAFTS_PATTERN, 'pay frequency', 'pay rate', 'next pay ?date', "'s (pay|rate|salary|wage|frequency)", 'list.*employees', 'show.*employees', 'how often.*paid', 'when.*(is|are).*paid'],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
@@ -867,9 +875,9 @@ CREATE_INVOICE_TRIGGER_PATTERN],
   // and go through PUT employees/[id] (same zod validation + audit as the UI).
   {
     name: 'query-employee',
-    description: "Answer questions about one employee or list employees — pay frequency, pay rate, next scheduled pay date. Never tax ids or bank details.",
+    description: "Answer questions about one named employee or list employees — pay frequency (weekly / bi-weekly / fortnightly / monthly), pay rate or salary, next scheduled pay date. Use for e.g. \"What's Jane's pay frequency?\", \"How often do I pay Jane?\", \"Is Jane paid fortnightly?\", \"list my employees\", \"Quelle est la fréquence de paie de Jane ?\", \"Jane 的发薪频率是什么？\". Employee names can contain digits/uppercase tags. Never tax ids or bank details.",
     category: 'finance',
-    triggerPatterns: ['pay frequency', 'pay rate', 'next pay ?date', 'when.*(is|are).*paid', "'s (pay|rate|salary|wage|frequency)", 'list.*employees', 'show.*employees', 'how often.*paid'],
+    triggerPatterns: [EMPLOYEE_QUERY_PATTERN, 'pay frequency', 'pay rate', 'next pay ?date', 'when.*(is|are).*paid', "'s (pay|rate|salary|wage|frequency)", 'list.*employees', 'show.*employees', 'how often.*paid'],
     excludePatterns: [EMPLOYEE_EDIT_PATTERN, PAY_RUN_DRAFTS_PATTERN],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
