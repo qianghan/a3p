@@ -25,6 +25,18 @@ import { LanguageSwitcher } from './language-switcher';
  * a recognisable name rather than a translated one, and it only affects routes
  * outside this list.
  */
+/** A path segment that is a record id (uuid / long hex / cuid), never a title. */
+export function isIdSegment(seg: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)
+    || /^[0-9a-f]{24,}$/i.test(seg)
+    || /^c[a-z0-9]{24}$/.test(seg);
+}
+
+/** Dynamic detail routes with a catalog title: parent-path prefix -> key. */
+const DETAIL_TITLE_KEYS: Record<string, string> = {
+  '/payroll/employees': 'core_ui.employee_profile',
+};
+
 function useViewTitle(): string {
   const pathname = usePathname();
   const t = useT();
@@ -45,7 +57,13 @@ function useViewTitle(): string {
   if (titleKeys[pathname]) return t(titleKeys[pathname]);
 
   // Plugin / dynamic routes — use the last meaningful segment
-  const segments = pathname.split('/').filter(Boolean);
+  const all = pathname.split('/').filter(Boolean);
+  if (all.length > 1 && isIdSegment(all[all.length - 1])) {
+    const detailKey = DETAIL_TITLE_KEYS['/' + all.slice(0, -1).join('/')];
+    if (detailKey) return t(detailKey);
+  }
+  // Never humanize a record id into a title: drop id segments.
+  const segments = all.filter((seg) => !isIdSegment(seg));
   const last = segments[segments.length - 1];
   if (!last) return t('dash.overview');
   return last

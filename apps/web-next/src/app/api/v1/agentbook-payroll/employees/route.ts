@@ -48,6 +48,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!body.name || typeof body.payRateCents !== 'number' || body.payRateCents <= 0) {
       return NextResponse.json({ success: false, error: 'name and positive payRateCents are required' }, { status: 400 });
     }
+    // Default to the TENANT's market, never a hard-coded 'us': an AU/CA owner
+    // who omits the field must not get a US (W-4) employee.
+    const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId }, select: { jurisdiction: true, region: true } }).catch(() => null);
+    const jurisdiction = body.jurisdiction || cfg?.jurisdiction || 'us';
+    const region = body.region !== undefined ? body.region : (jurisdiction === (cfg?.jurisdiction || 'us') ? cfg?.region || '' : '');
     const employee = await db.abEmployee.create({
       data: {
         tenantId,
@@ -57,8 +62,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         payType: body.payType || 'salary',
         payRateCents: body.payRateCents,
         payFrequency: body.payFrequency || 'biweekly',
-        jurisdiction: body.jurisdiction || 'us',
-        region: body.region || '',
+        jurisdiction,
+        region,
         filingStatus: body.filingStatus || 'single',
       },
     });

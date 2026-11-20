@@ -74,6 +74,10 @@ export default function EmployeeDetail({ id }: { id: string }) {
   const sections: Array<{ title: string; fields: FieldDef[] }> = [
     { title: t('core_ui.personal'), fields: [
       { key: 'name', label: t('common.name'), kind: 'text', nullable: false },
+      // Lets the owner correct a wrongly-defaulted market. The API re-runs the
+      // per-jurisdiction validation (tax id / bank / routing) on change.
+      { key: 'jurisdiction', label: t('core_ui.country'), kind: 'enum', nullable: false,
+        options: yesNoEnum([['us', 'common.country_us'], ['ca', 'common.country_ca'], ['uk', 'common.country_gb'], ['au', 'common.country_au']]) },
       { key: 'email', label: t('core_ui.email_address'), kind: 'text' },
       { key: 'phone', label: t('core_ui.phone'), kind: 'text' },
       { key: 'address', label: t('core_ui.address'), kind: 'text' },
