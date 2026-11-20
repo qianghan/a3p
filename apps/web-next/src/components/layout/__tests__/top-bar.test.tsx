@@ -42,6 +42,7 @@ const FR: Record<string, string> = {
   'nav.marketplace': 'Place de marché',
   'nav.feedback': 'Commentaires',
   'nav.account_access': 'Accès au compte',
+  'core_ui.employee_profile': 'Profil de l\'employé',
 };
 
 let translate: (key: string) => string;
@@ -104,5 +105,27 @@ describe('TopBar view title', () => {
     pathname.current = '';
     render(<TopBar />);
     expect(screen.getByText("Vue d'ensemble")).toBeTruthy();
+  });
+});
+
+describe('TopBar never renders a record id as the title', () => {
+  const UUID = 'b5ce8add-3541-42a8-9f0c-1a2b3c4d5e6f';
+  it('payroll employee detail shows the catalog title', () => {
+    pathname.current = `/payroll/employees/${UUID}`;
+    render(<TopBar />);
+    expect(screen.getByText("Profil de l'employé")).toBeTruthy();
+    expect(screen.queryByText(/B5ce8add/i)).toBeNull();
+  });
+  it.each([
+    `/anything/else/${UUID}`,
+    `/invoices/${UUID}`,
+    '/foo/ckx9z8y7w6v5u4t3s2r1q0p9o',
+    '/foo/0123456789abcdef01234567',
+  ])('%s falls back to the parent segment, never the id', (path) => {
+    pathname.current = path;
+    const { container } = render(<TopBar />);
+    const text = container.textContent ?? '';
+    expect(text).not.toMatch(/b5ce8add|ckx9z8y7|0123456789abcdef/i);
+    expect(text.trim().length).toBeGreaterThan(0);
   });
 });

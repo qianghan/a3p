@@ -110,6 +110,23 @@ describe('editing', () => {
   });
 });
 
+describe('jurisdiction selector', () => {
+  it('shows the stored value, and changing it PUTs only { jurisdiction } with the market switched', async () => {
+    const stored = employee('us');
+    mockFetch(stored);
+    putResponses = [[200, { success: true, data: employee('au') }]];
+    renderWithI18n(<EmployeeDetail id="e1" />, 'en');
+    const sel = await screen.findByLabelText('Country') as HTMLSelectElement;
+    expect(sel.value).toBe('us');
+    fireEvent.change(sel, { target: { value: 'au' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Profile saved');
+    expect(calls.find((c) => c.method === 'PUT')!.body).toEqual({ jurisdiction: 'au' });
+    // After the save the AU field set renders (TFN), not W-4.
+    expect(await screen.findByLabelText('Tax file number (TFN)')).toBeInTheDocument();
+  });
+});
+
 describe('503 pii_key_unconfigured', () => {
   it('shows the unavailable state, disables sensitive inputs, and still saves the non-sensitive edit', async () => {
     mockFetch(employee('au'));

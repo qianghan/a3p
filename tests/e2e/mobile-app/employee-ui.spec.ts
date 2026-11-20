@@ -55,7 +55,7 @@ for (const m of MARKETS) {
       await settle(page);
       const loc = await pageLocales(page);
       t = catalogT(loc.stringLocale);
-      await expect(page.getByRole('heading', { level: 1, name: t('nav.payroll') })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('heading', { level: 1, name: t('nav.payroll') })).toBeVisible();
       const res = await api(page).post(`${PAYROLL}/employees`, {
         name: `${tag} Employee`, payRateCents: 5_200_000, payType: 'salary', payFrequency: 'biweekly', jurisdiction: m.jurisdiction,
       });
@@ -91,7 +91,7 @@ for (const m of MARKETS) {
       await expect(link.locator('xpath=following-sibling::p[1]')).toContainText(t(m.biweeklyKey));
       await link.click();
       await expect(page).toHaveURL(new RegExp(`/payroll/employees/${id}$`));
-      await expect(page.getByRole('heading', { level: 1, name: t('core_ui.employee_profile') })).toBeVisible();
+      await expect(page.getByRole('main').getByRole('heading', { level: 1, name: t('core_ui.employee_profile') })).toBeVisible();
     });
 
     test('profile shows the market tax-id label and edits the frequency', async () => {

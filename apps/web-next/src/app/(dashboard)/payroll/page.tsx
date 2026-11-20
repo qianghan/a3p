@@ -125,6 +125,9 @@ export default function PayrollPage() {
         setCurrency(cfg.data?.currency || 'USD');
         setLocale(cfg.data?.locale || 'en-US');
         setTenantJurisdiction(cfg.data?.jurisdiction || 'us');
+        // The add form starts in the tenant's market, not a hard-coded 'us'.
+        setJuris(cfg.data?.jurisdiction || 'us');
+        setRegion(cfg.data?.region || '');
       }
     } finally { setLoading(false); }
   }, [year]);
