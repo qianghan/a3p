@@ -132,6 +132,18 @@ const DATA_QUESTION = [
   // bare follow-ups in a data thread ("and meals?")
   /^\s*(?:and|what about|how about)\s+[a-z][a-z ]{0,20}\??$/i,
 
+  // Employee pay terms (PR 4e prod finding). "What's Jane's pay frequency?"
+  // ends in "?" and opens "What is", so it was swept to the advisor, which has
+  // no payroll rows and answered "I can't tell you about specific pay
+  // frequencies". These are facts in the user's own payroll; query-employee
+  // answers them. Mirrors EMPLOYEE_QUERY_PATTERN in built-in-skills.ts.
+  /\b(?:pay (?:frequency|rate|schedule|date)|next pay ?day|on (?:the )?payroll|paid (?:weekly|bi-?\s?weekly|fortnightly|semi-?\s?monthly|monthly)|my (?:employees?|staff|team)'?s?)\b/i,
+  /\bhow often\b[^.?!]{0,40}\b(?:pay|paid)\b/i,
+  /\b[\w-]+'s (?:pay|salary|wage|rate|hourly rate)\b/i,
+  /\bwhen (?:is|are|do|does) [^.?!]{1,40} (?:paid|get paid)\b/i,
+  /fr[ée]quence (?:de |des )?(?:la )?(?:paie|paye|r[ée]mun[ée]ration)|fr[ée]quence[^.?!]{0,40}pay[ée]|taux (?:de paie|de r[ée]mun[ée]ration|horaire)|\bmes employ[ée]s\b|\bsalaire de\b/i,
+  /发薪|薪资频率|工资频率|多久.{0,6}(?:发|付).{0,3}(?:工资|薪)|员工.{0,8}(?:频率|工资|薪|名单|列表)/,
+
   // ── Chinese ───────────────────────────────────────────────────────────
   // Without these, EVERY Chinese question reached the `[?？]$` catch below
   // and went to the advisor, which cannot read the ledger. Observed on
