@@ -58,6 +58,7 @@ interface TenantConfig {
   abn: string | null;
   gstRegistered: boolean | null;
   qstRegistered?: boolean | null;
+  trackInventory?: boolean;
   gstReportingBasis?: 'accrual' | 'cash' | null;
   logoUrl: string | null;
   brandColor: string;
@@ -96,8 +97,18 @@ const BUSINESS_TYPE_OPTIONS = [
   { value: 'contractor', labelKey: 'common.persona_contractor' },
   { value: 'agency', labelKey: 'common.persona_agency' },
   { value: 'startup', labelKey: 'common.persona_startup' },
+  { value: 'merchant', labelKey: 'common.persona_merchant' },
+  { value: 'retail', labelKey: 'common.persona_retail' },
   { value: 'student', labelKey: 'common.persona_student' },
 ];
+
+/**
+ * Business types that sell goods: the inventory toggle is offered to these
+ * only (spec §5.4). The GATE is still the trackInventory flag itself — an
+ * already-enabled tenant of any type keeps seeing the toggle so it can turn
+ * it off.
+ */
+export const INVENTORY_BUSINESS_TYPES: ReadonlySet<string> = new Set(['merchant', 'retail']);
 
 const DEGREE_OPTIONS = [
   { value: '', label: 'Select…' },
@@ -2189,6 +2200,22 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                   </select>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {form.qstRegistered === true ? t('core_ui.qst_help_registered') : t('core_ui.qst_help_other')}
+                  </p>
+                </div>
+              )}
+              {(INVENTORY_BUSINESS_TYPES.has(form.businessType ?? '') || form.trackInventory === true) && (
+                <div data-testid="inventory-toggle">
+                  <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <input
+                      type="checkbox"
+                      data-testid="inventory-toggle-input"
+                      checked={form.trackInventory === true}
+                      onChange={(e) => set({ trackInventory: e.target.checked })}
+                    />
+                    {t('core_ui.track_inventory')}
+                  </label>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('core_ui.track_inventory_help')}
                   </p>
                 </div>
               )}

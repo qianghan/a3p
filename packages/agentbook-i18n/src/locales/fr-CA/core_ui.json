@@ -404,5 +404,7 @@
   "process": "Traiter",
   "delete_draft": "Supprimer l’ébauche",
   "pay_date_on": "Date de paie : {date}",
-  "pay_date_is_a_weekend": "La date de paie tombe un week-end — les déclarations obligatoires utilisent cette date."
+  "pay_date_is_a_weekend": "La date de paie tombe un week-end — les déclarations obligatoires utilisent cette date.",
+  "track_inventory": "Suivre les stocks",
+  "track_inventory_help": "Suivez les stocks que vous achetez et vendez. Les achats d’articles sur les factures fournisseurs vont à l’actif Stocks (1500) plutôt qu’en dépense."
 }

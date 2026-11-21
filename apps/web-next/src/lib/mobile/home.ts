@@ -7,6 +7,7 @@
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
+import { lowStockItems } from '@/lib/inventory';
 import { getCashTodayCents, getMonthTotals, nonEmptyMonth, isBrandNewTenant } from '@/lib/agentbook-dashboard-metrics';
 import { computeAgingReport, type AgingEntry } from '@/lib/agentbook-aging';
 import { computeTaxEstimate, TAX_ESTIMATE_JURISDICTIONS } from '@/lib/agentbook-tax-estimate';
@@ -103,7 +104,7 @@ async function recentActivity(tenantId: string): Promise<RecentItem[]> {
 export async function buildMobileHome(tenantId: string, now: Date = new Date()): Promise<MobileHome> {
   const cfg = await db.abTenantConfig.findUnique({
     where: { userId: tenantId },
-    select: { currency: true, jurisdiction: true },
+    select: { currency: true, jurisdiction: true, trackInventory: true },
   });
   const jurisdiction = cfg?.jurisdiction || 'us';
 
@@ -137,6 +138,9 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
     }),
     recentActivity(tenantId),
   ]);
+
+  // PR 5A: low-stock alert, only for tenants that opted in to inventory.
+  const lowStock = cfg?.trackInventory === true ? await lowStockItems(db, tenantId).catch(() => []) : [];
 
   const overdue: AgingEntry[] = (Object.entries(aging.buckets) as [string, AgingEntry[]][])
     .filter(([bucket]) => bucket !== 'current')
@@ -185,6 +189,16 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
       severity: days < 0 ? 'critical' : 'warn',
       params: { vendor: dueBill.vendorName, days, amountCents: outstandingCents(dueBill) },
       target: { route: '/app/chat', query: { topic: 'bill_due' } },
+    });
+  }
+
+  if (lowStock.length > 0) {
+    candidates.push({
+      id: 'low_stock',
+      kind: 'low_stock',
+      severity: 'warn',
+      params: { count: lowStock.length, item: lowStock[0].name },
+      target: { route: '/app/chat', query: { topic: 'low_stock' } },
     });
   }
 

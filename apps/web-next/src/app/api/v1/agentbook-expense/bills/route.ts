@@ -18,6 +18,7 @@ import { publicErrorMessage } from '@/lib/api-error';
 import { isUnpaid, liveBillWhere, outstandingCents } from '@/lib/bill-amounts';
 import { postBill, PurchaseError } from '@/lib/purchases';
 import { purchasesAtEntryApplies } from '@/lib/purchases-flag';
+import { assertInventoryEnabled, loadItem, resolveAccountByRole, toUnits, unitsToNumber } from '@/lib/inventory';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -82,6 +83,9 @@ interface CreateBillBody {
   currency?: string;
   taxCode?: string | null;
   idempotencyKey?: string;
+  /** PR 5A: an inventory item bought on this bill (debits 1500, adds qty). */
+  itemId?: string | null;
+  qty?: number | null;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -131,7 +135,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           vendorName: body.vendorName, description: body.description ?? null, billNumber: body.billNumber ?? null,
           billDate, dueDate: due, currency: body.currency ?? null, postingMode: 'at_entry',
           idempotencyKey: body.idempotencyKey ?? request.headers.get('idempotency-key'),
-          lines: [{ description: body.description || body.vendorName, amountCents: body.amountCents, categoryId: category?.id ?? null, taxCode: body.taxCode }],
+          lines: [{ description: body.description || body.vendorName, amountCents: body.amountCents, categoryId: category?.id ?? null, taxCode: body.taxCode, itemId: body.itemId ?? null, qty: body.qty ?? null }],
         });
         return NextResponse.json({ success: true, data: bill }, { status: replayed ? 200 : 201 });
       } catch (err) {
@@ -142,12 +146,34 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
-    const bill = await db.abBill.create({
+    // at_payment + inventory: validate the item now (tenant-scoped, no FK),
+    // store it on a bill line; the stock arrives when the bill is paid.
+    let itemLine: { itemId: string; qty: number; categoryId: string } | null = null;
+    if (body.itemId) {
+      try {
+        await assertInventoryEnabled(db, tenantId);
+        await loadItem(db, tenantId, body.itemId);
+        const units = toUnits(body.qty ?? 1);
+        if (units <= 0) return NextResponse.json({ success: false, code: 'invalid_qty', error: 'qty must be positive' }, { status: 400 });
+        const inv = await resolveAccountByRole(db, tenantId, 'inventory');
+        itemLine = { itemId: body.itemId, qty: unitsToNumber(units), categoryId: inv.id };
+      } catch (err) {
+        const e = err as { status?: number; code?: string };
+        if (typeof e.status === 'number' && typeof e.code === 'string') {
+          return NextResponse.json({ success: false, code: e.code, error: publicErrorMessage(err) }, { status: e.status });
+        }
+        throw err;
+      }
+    }
+
+    // One transaction: an item bill never exists without its line.
+    const bill = await db.$transaction(async (tx) => {
+    const created = await tx.abBill.create({
       data: {
         tenantId,
-        vendorName: body.vendorName,
+        vendorName: body.vendorName!,
         description: body.description || null,
-        amountCents: body.amountCents,
+        amountCents: body.amountCents!,
         categoryCode: body.categoryCode || null,
         dueDate: due,
         status: 'open',
@@ -156,6 +182,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         revision: 0,
         deletedAt: null,
       },
+    });
+    if (itemLine) {
+      await tx.abBillLine.create({
+        data: {
+          billId: created.id, tenantId, description: body.description || body.vendorName!, amountCents: body.amountCents!,
+          ...itemLine, unitCostCents: Math.round(body.amountCents! / itemLine.qty),
+        },
+      });
+    }
+    return created;
     });
 
     return NextResponse.json({ success: true, data: bill }, { status: 201 });

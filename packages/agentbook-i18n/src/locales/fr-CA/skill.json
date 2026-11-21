@@ -138,5 +138,13 @@
   "scenario_cash_negative": "La trésorerie deviendrait négative au mois {month}.",
   "scenario_client_not_found": "Je n'ai trouvé aucun client nommé « {client} » dans vos livres, donc je n'ai pas modélisé ce scénario.",
   "scenario_failed": "Je n'ai pas pu simuler ce scénario. Essayez « et si j'embauchais quelqu'un à 5000 $/mois ? »",
-  "expense_tax_claimable": "{label} {amount} récupérable"
+  "expense_tax_claimable": "{label} {amount} récupérable",
+  "stock_not_enabled": "Le suivi des stocks est désactivé. Activez « Suivre les stocks » dans Paramètres › Profil d’entreprise.",
+  "stock_no_items": "Vous n’avez encore aucun article en stock. Ajoutez-les dans Dépenses › Articles.",
+  "stock_summary_one": "Vous avez **{count} article** en stock, d’une valeur de {value} :",
+  "stock_summary_other": "Vous avez **{count} articles** en stock, d’une valeur de {value} :",
+  "stock_item_line": "• {name} : {qty} {unit} ({value})",
+  "stock_low_heading_one": "**{count} article** est au seuil de réapprovisionnement ou en dessous :",
+  "stock_low_heading_other": "**{count} articles** sont au seuil de réapprovisionnement ou en dessous :",
+  "stock_load_failed": "Je n’ai pas pu charger vos stocks. Veuillez réessayer."
 }

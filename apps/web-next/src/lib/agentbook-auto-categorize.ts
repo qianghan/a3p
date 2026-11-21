@@ -14,6 +14,7 @@
  */
 
 import 'server-only';
+import { withoutInventoryRoles } from '@/lib/inventory';
 import { prisma as db } from '@naap/database';
 import { backfillExpenseJournalEntry } from '@/lib/agentbook-expense-ledger';
 
@@ -246,10 +247,11 @@ export async function autoCategorizeForTenant(
     return { appliedCount: 0, pending: [], skippedCount: 0 };
   }
 
-  const categories = await db.abAccount.findMany({
+  // Inventory-role accounts (COGS, shrinkage) are posted by the inventory engine only (PR 5A).
+  const categories = await withoutInventoryRoles(db, tenantId, await db.abAccount.findMany({
     where: { tenantId, accountType: 'expense', isActive: true },
     select: { id: true, name: true, code: true, taxCategory: true },
-  });
+  }));
   if (categories.length === 0) {
     await markRun(tenantId);
     return { appliedCount: 0, pending: [], skippedCount: expenses.length };

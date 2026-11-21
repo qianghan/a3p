@@ -345,8 +345,11 @@ const AU_BUSINESS_SCHEDULE_2025 = {
         // and simply do not appear on the worksheet when unset.
         { fieldId: 'opening_stock', label: 'Opening stock', lineNumber: 'P8', type: 'currency', required: false, source: 'manual' },
         { fieldId: 'purchases_and_other_costs', label: 'Purchases and other costs', lineNumber: 'P8 L', type: 'currency', required: false, source: 'manual' },
-        { fieldId: 'closing_stock', label: 'Closing stock', lineNumber: 'P8 M', type: 'currency', required: false, source: 'manual' },
-        { fieldId: 'cost_of_sales', label: 'Cost of sales', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:5000' },
+        // PR 5A: closing stock is the 1500 Inventory balance at year end, and
+        // cost of sales is NET of credits on 5000 COGS + 5995 shrinkage (a
+        // negative-stock true-up credits COGS; a debit-only sum overstated it).
+        { fieldId: 'closing_stock', label: 'Closing stock', lineNumber: 'P8 M', type: 'currency', required: false, source: 'auto', sourceQuery: 'account_balance:1500' },
+        { fieldId: 'cost_of_sales', label: 'Cost of sales', lineNumber: 'P8', type: 'currency', required: false, source: 'auto', sourceQuery: 'net_expense_categories:5000,5995' },
 
         { fieldId: 'foreign_resident_withholding', label: 'Foreign resident withholding expenses', lineNumber: 'P8', type: 'currency', required: false, source: 'manual' },
         { fieldId: 'contractor_subcontractor_commission', label: 'Contractor, sub-contractor and commission expenses', lineNumber: 'P8 F', type: 'currency', required: false, source: 'auto', sourceQuery: 'expense_category:6400' },
@@ -522,6 +525,24 @@ export async function seedAuForms(): Promise<{ created: number; updated: number 
 
 // === Source Query Resolution ===
 
+/**
+ * The income-year window for a jurisdiction, as UTC date-only bounds
+ * [start, endExclusive). AU: taxYear N is 1 Jul N-1 – 30 Jun N (the ATO's
+ * "2026 income year"); US/CA (and anything else): the calendar year.
+ * Used by the PR 5A trading-stock queries; never server-local time.
+ */
+export function incomeYearWindow(jurisdiction: string | null | undefined, taxYear: number): { start: Date; endExclusive: Date } {
+  if (String(jurisdiction || '').toLowerCase() === 'au') {
+    return { start: new Date(Date.UTC(taxYear - 1, 6, 1)), endExclusive: new Date(Date.UTC(taxYear, 6, 1)) };
+  }
+  return { start: new Date(Date.UTC(taxYear, 0, 1)), endExclusive: new Date(Date.UTC(taxYear + 1, 0, 1)) };
+}
+
+async function tenantIncomeYear(tenantId: string, taxYear: number) {
+  const cfg = await db.abTenantConfig.findFirst({ where: { userId: tenantId } });
+  return incomeYearWindow(cfg?.jurisdiction, taxYear);
+}
+
 export async function resolveSourceQuery(
   tenantId: string, taxYear: number, query: string,
 ): Promise<number | string | null> {
@@ -540,6 +561,29 @@ export async function resolveSourceQuery(
   // has a single "All other expenses" line that nine of our accounts land on,
   // so without this the only way to fill it is to expose all nine as separate
   // fields — which is exactly the US-shaped schedule this replaced.
+  // Net (debit − credit) over several expense codes for the year.
+  if (query.startsWith('net_expense_categories:')) {
+    const codes = query.slice('net_expense_categories:'.length).split(',').map((c) => c.trim()).filter(Boolean);
+    if (codes.length === 0) return 0;
+    const fy = await tenantIncomeYear(tenantId, taxYear);
+    const result = await db.abJournalLine.aggregate({
+      _sum: { debitCents: true, creditCents: true },
+      where: { entry: { tenantId, date: { gte: fy.start, lt: fy.endExclusive } }, account: { code: { in: codes } } },
+    });
+    return (result._sum.debitCents || 0) - (result._sum.creditCents || 0);
+  }
+
+  // Balance-sheet account balance (debit − credit) as at the income-year end (AU 30 Jun).
+  if (query.startsWith('account_balance:')) {
+    const code = query.slice('account_balance:'.length).trim();
+    const fy = await tenantIncomeYear(tenantId, taxYear);
+    const result = await db.abJournalLine.aggregate({
+      _sum: { debitCents: true, creditCents: true },
+      where: { entry: { tenantId, date: { lt: fy.endExclusive } }, account: { code } },
+    });
+    return (result._sum.debitCents || 0) - (result._sum.creditCents || 0);
+  }
+
   if (query.startsWith('expense_categories:')) {
     const codes = query.slice('expense_categories:'.length).split(',').map((c) => c.trim()).filter(Boolean);
     if (codes.length === 0) return 0;

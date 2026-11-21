@@ -109,6 +109,13 @@ export function alertCopy(alert: MobileAlert, t: Translate, money: FormatCents):
       }
       break;
     }
+    case 'low_stock': {
+      const item = text(p.item);
+      title = count <= 1 && item
+        ? t('mobile.home.alert.low_stock_item', { item })
+        : t('mobile.home.alert.low_stock', { count });
+      break;
+    }
     case 'receipts_missing':
       title = t('mobile.home.alert.receipts_missing', { count });
       break;

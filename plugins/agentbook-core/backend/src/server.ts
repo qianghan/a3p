@@ -4876,6 +4876,43 @@ async function _executeClassificationCore(
     }
   }
 
+  // INTERNAL handler: query-stock — stock on hand + low-stock (PR 5A).
+  // Same reading as GET /agentbook-expense/inventory/items: qty is Decimal,
+  // value integer cents, average cost derived; replies via the skill catalog.
+  if (selectedSkill.name === 'query-stock') {
+    try {
+      const fmt = (c: number) => tenantMoneyCompact(c);
+      const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+      let message: string;
+      let count = 0;
+      if (cfg?.trackInventory !== true) {
+        message = t('skill.stock_not_enabled');
+      } else {
+        const items = await db.abInventoryItem.findMany({ where: { tenantId, deletedAt: null, isActive: true }, orderBy: { name: 'asc' } });
+        count = items.length;
+        if (items.length === 0) {
+          message = t('skill.stock_no_items');
+        } else {
+          const qtyOf = (q: unknown) => Number(String(q ?? 0));
+          const total = items.reduce((s, i) => s + i.onHandValueCents, 0);
+          const low = items.filter((i) => i.reorderPoint != null && qtyOf(i.onHandQty) <= qtyOf(i.reorderPoint));
+          const rows = items.slice(0, 10).map((i) => t('skill.stock_item_line', {
+            name: i.name, qty: String(qtyOf(i.onHandQty)), unit: i.unit, value: fmt(i.onHandValueCents),
+          })).join('\n');
+          message = `${t('skill.stock_summary', { count: items.length, value: fmt(total) })}\n${rows}`;
+          if (low.length > 0) {
+            message += `\n\n${t('skill.stock_low_heading', { count: low.length })}\n${low.slice(0, 10).map((i) => `• ${i.name}`).join('\n')}`;
+          }
+        }
+      }
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'query-stock' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'query-stock', skillResponse: { data: { count } }, responseData: { message, actions: [], chartData: null, skillUsed: 'query-stock', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[query-stock] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'query-stock', skillResponse: null, responseData: { message: t('skill.stock_load_failed'), actions: [], chartData: null, skillUsed: 'query-stock', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
   // INTERNAL handler: run-payroll — real withholding preview (via the same
   // engine the real pay-run POST uses), still requires the user to process
   // it on the Payroll page — this skill never persists a pay run itself.

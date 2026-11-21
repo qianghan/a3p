@@ -45,6 +45,9 @@ packages/
 ### Accounts payable (PR 3bc)
 Bills (`AbBill` + `AbBillLine` + `AbBillPayment`) post through `apps/web-next/src/lib/purchases.ts` on the ledger writer. `postingMode='at_entry'` (accrual tenants with flag `purchases_at_entry`, global or per-tenant `FeatureFlag.metadata.tenantIds`) books AP (2000) on the bill date and moves it to cash (1000) on payment, never creating an expense row; `at_payment` (legacy rows, cash-basis tenants) books DR expense / CR 1000 at payment. Readers treat `open|partial` as unpaid (`lib/bill-amounts.ts`); the balance sheet combines journal 2000 (at_entry) with derived AP (at_payment) so no bill counts twice; BAS 1B/G10/G11 and CA line 108 include bills by billDate (accrual) or payment date pro-rata (cash GST). Routes: `agentbook-expense/bills`, `/bills/:id`, `/bills/:id/payments/:paymentId`, `agentbook-expense/purchases`.
 
+### Inventory (PR 5A)
+`AbInventoryItem` (qty Decimal(14,4), `onHandValueCents` Int, unique (tenantId, sku), soft delete) and `AbStockMovement` (signed qty + valueCents, unique (tenantId, sourceType, sourceId), `journalEntryId`). Accounts 1500 Inventory, 3900 Opening Balance Equity, 5990 COGS (US/CA; AU/UK use 5000), 5995 Shrinkage are in every chart pack. The sub-ledger total always equals the 1500 balance: every movement that changes value is part of a balanced, keyed, period-gated journal entry (bill / bill payment / `stock_opening` / `stock_adjust`). Opt-in via `AbTenantConfig.trackInventory`. Engine: `apps/web-next/src/lib/inventory.ts`; routes under `/api/v1/agentbook-expense/inventory`.
+
 ## API Endpoints (140 total)
 
 | Plugin | Port | Endpoints | Key Routes |

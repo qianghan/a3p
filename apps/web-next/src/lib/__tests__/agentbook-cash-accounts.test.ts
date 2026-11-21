@@ -31,7 +31,10 @@ describe('isCashAccount over the real chart packs', () => {
   it('every asset in every pack is classified on purpose (a new asset account must be decided here)', () => {
     const seen = new Map<string, string>();
     for (const pack of Object.values(PACKS)) for (const bt of BUSINESS_TYPES) for (const a of assetsOf(pack, bt)) seen.set(a.code, a.name);
-    expect([...seen.keys()].sort()).toEqual(['1000', '1100', '1200', '1300', '1400']);
+    expect([...seen.keys()].sort()).toEqual(['1000', '1100', '1200', '1300', '1400', '1500']);
+    // 1500 "Inventory" (PR 5A): stock at cost, not cash.
+    expect(seen.get('1500')).toBe('Inventory');
+    expect(isCashAccount({ code: '1500', accountType: 'asset' })).toBe(false);
     // AU 1400 "Term Deposits": locked away, not cash you have today.
     expect(seen.get('1400')).toBe('Term Deposits');
     expect(isCashAccount({ code: '1400', accountType: 'asset' })).toBe(false);

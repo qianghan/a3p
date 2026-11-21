@@ -69,7 +69,10 @@
       "review_needed_other": "{count} 项等待您审核",
       "generic": "有事项需要您关注",
       "a_client": "某客户",
-      "a_vendor": "某供应商"
+      "a_vendor": "某供应商",
+      "low_stock_item": "{item} 库存不足",
+      "low_stock_one": "{count} 种商品库存不足",
+      "low_stock_other": "{count} 种商品库存不足"
     },
     "action": {
       "logged": "已记录",
@@ -412,6 +415,7 @@
     "receipt_open": "打开",
     "new_messages": "新消息",
     "offline_banner": "您已离线。恢复连接前消息无法发送。",
-    "unreadable_amount": "金额无法识别"
+    "unreadable_amount": "金额无法识别",
+    "topic_low_stock": "哪些商品库存不足？"
   }
 }

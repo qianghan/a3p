@@ -138,5 +138,13 @@
   "scenario_cash_negative": "现金将在第 {month} 个月转为负数。",
   "scenario_client_not_found": "我在您的账簿中找不到名为「{client}」的客户，因此没有模拟该情景。",
   "scenario_failed": "我无法模拟该情景。可以试试「如果我以每月 5000 美元雇一个人会怎样？」",
-  "expense_tax_claimable": "{label} {amount} 可抵扣"
+  "expense_tax_claimable": "{label} {amount} 可抵扣",
+  "stock_not_enabled": "库存跟踪已关闭。请在“设置 › 企业资料”中开启“跟踪库存”。",
+  "stock_no_items": "您还没有库存商品。请在“费用 › 库存商品”中添加。",
+  "stock_summary_one": "您有 **{count} 种商品**在库，价值 {value}：",
+  "stock_summary_other": "您有 **{count} 种商品**在库，价值 {value}：",
+  "stock_item_line": "• {name}：{qty} {unit}（{value}）",
+  "stock_low_heading_one": "**{count} 种商品**已达到或低于补货点：",
+  "stock_low_heading_other": "**{count} 种商品**已达到或低于补货点：",
+  "stock_load_failed": "无法加载库存，请重试。"
 }

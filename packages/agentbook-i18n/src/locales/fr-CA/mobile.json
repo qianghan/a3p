@@ -69,7 +69,10 @@
       "review_needed_other": "{count} éléments attendent votre vérification",
       "generic": "Un point demande votre attention",
       "a_client": "Un client",
-      "a_vendor": "Un fournisseur"
+      "a_vendor": "Un fournisseur",
+      "low_stock_item": "Le stock de {item} est bas",
+      "low_stock_one": "{count} article a un stock bas",
+      "low_stock_other": "{count} articles ont un stock bas"
     },
     "action": {
       "logged": "Consigné",
@@ -412,6 +415,7 @@
     "receipt_open": "Ouvrir",
     "new_messages": "Nouveaux messages",
     "offline_banner": "Vous êtes hors ligne. Les messages ne partiront pas avant la reconnexion.",
-    "unreadable_amount": "Montant illisible"
+    "unreadable_amount": "Montant illisible",
+    "topic_low_stock": "Quels articles ont un stock bas?"
   }
 }
