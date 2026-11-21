@@ -8,7 +8,7 @@
  * A gate that did not run, was skipped, was flaky, or ran zero tests is a FAIL,
  * never a pass.
  */
-export type GateStatus = 'pass' | 'fail' | 'pending';
+export type GateStatus = 'pass' | 'fail' | 'pending' | 'accepted';
 export type Group = 'F' | 'R' | 'U' | 'L';
 export type Phase = 'pre' | 'post';
 export interface Gate { id: string; group: Group; phase: Phase; name: string; rubric: string; status: GateStatus; evidence: string }
@@ -23,24 +23,27 @@ export interface Manifest {
   /** checklist: reviewed before merge (code-level consistency); postChecklist: visual checks in a real browser on the deployed build. */
   ux: { vitest?: string[]; playwright?: string[]; checklist: string; postChecklist?: string };
   /** docs: files this PR updates; docsNone: reason (>=20 chars) when it genuinely changes none. Exactly one. */
+  /** Only R3/R2 may be accepted, and only for load-timeout failures (see acceptGate). */
+  acceptedGates?: Record<string, { reason: string; isolationEvidence: string; approvedBy: string }>;
   launch: { docs?: string[]; docsNone?: string; rollback: string; prodPlaywright: string[]; playwrightConfig?: string };
 }
 
-export interface VitestFile { passed: number; failed: number; skipped: number }
+export interface VitestFile { passed: number; failed: number; skipped: number; failureMessages?: string[] }
 export interface VitestSummary { total: number; passed: number; failed: number; skipped: number; files: Record<string, VitestFile> }
 
 /** Reads a `vitest --reporter=json` report (jest-compatible shape). */
 export function summarizeVitest(report: unknown): VitestSummary {
   const files: Record<string, VitestFile> = {};
   const out: VitestSummary = { total: 0, passed: 0, failed: 0, skipped: 0, files };
-  const results = ((report as { testResults?: unknown[] } | null)?.testResults ?? []) as Array<{ name?: string; assertionResults?: Array<{ status?: string }> }>;
+  const results = ((report as { testResults?: unknown[] } | null)?.testResults ?? []) as Array<{ name?: string; message?: string; assertionResults?: Array<{ status?: string; failureMessages?: string[] }> }>;
   for (const r of results) {
     const f: VitestFile = { passed: 0, failed: 0, skipped: 0 };
     for (const a of r.assertionResults ?? []) {
       if (a.status === 'passed') f.passed += 1;
-      else if (a.status === 'failed') f.failed += 1;
+      else if (a.status === 'failed') { f.failed += 1; (f.failureMessages ??= []).push((a.failureMessages ?? []).join(' ')); }
       else f.skipped += 1; // pending | skipped | todo | disabled
     }
+    if (!r.assertionResults?.length && r.message) { f.failed += 1; (f.failureMessages ??= []).push(r.message); } // suite-level failure (e.g. collect timeout)
     files[String(r.name ?? '')] = f;
     out.passed += f.passed; out.failed += f.failed; out.skipped += f.skipped;
   }
@@ -152,6 +155,41 @@ export function ciGate(rows: CheckRow[], required = ['Quality Gates', 'CodeQL', 
   return { status: 'pass', evidence: `${rows.length} checks green` };
 }
 
+const ACCEPTABLE_GATES = ['R3', 'R2'];
+const TIMEOUT_RE = /timed out|STACK_TRACE_ERROR/;
+const norm = (p: string) => p.replace(/\\/g, '/');
+
+/**
+ * User-approved 2026-11-21: a R2/R3 FAIL caused ONLY by load timeouts in files this PR does not touch, every one of which
+ * passes when re-run alone, may be ACCEPTED (CI's Shell Tests must still be green via L1). Anything else stays FAIL.
+ * `rerun(file)` runs that single file alone. A raw PASS ignores the acceptance.
+ */
+export function acceptGate(
+  raw: Pick<Gate, 'status' | 'evidence'>,
+  acc: { reason: string; approvedBy: string } | undefined,
+  summary: VitestSummary,
+  changed: string[],
+  rerun: (file: string) => VitestSummary,
+): Pick<Gate, 'status' | 'evidence'> {
+  if (raw.status !== 'fail' || !acc) return raw;
+  const failing = Object.entries(summary.files).filter(([, f]) => f.failed > 0);
+  const stay = (why: string): Pick<Gate, 'status' | 'evidence'> => ({ status: 'fail', evidence: `${why}; ${raw.evidence}` });
+  if (!failing.length) return stay('accepted gate has no failing files to accept (shrink/skip problems are never accepted)');
+  const msgs = failing.flatMap(([, f]) => f.failureMessages ?? []);
+  const nFailed = failing.reduce((a, [, f]) => a + f.failed, 0);
+  if (msgs.length < nFailed || !msgs.every((m) => TIMEOUT_RE.test(m))) return stay('accepted gate has non-timeout failures');
+  if (summary.total < 1 || raw.evidence.includes('shrank') || raw.evidence.includes('skips grew')) return stay('accepted gate also fails the floor');
+  const touched = failing.map(([n]) => n).filter((n) => changed.some((c) => norm(n) === c || norm(n).endsWith(`/${c}`)));
+  if (touched.length) return stay(`accepted gate: failing files are changed by this PR: ${touched.join(', ')}`);
+  const results = failing.map(([n]) => [n, strictStatus(rerun(n))] as const);
+  const bad = results.filter(([, st]) => st !== 'pass');
+  if (bad.length) return stay(`accepted gate: isolation re-run failed: ${bad.map(([n]) => n).join(', ')}`);
+  return {
+    status: 'accepted',
+    evidence: `ACCEPTED (approved by ${acc.approvedBy}): ${acc.reason}. Timed-out files: ${failing.map(([n]) => n).join(', ')}. Isolation re-runs: ${results.map(([n]) => `${n} PASS`).join(', ')}`,
+  };
+}
+
 export function validateManifest(m: Partial<Manifest> | null, exists: (p: string) => boolean): string[] {
   const e: string[] = [];
   if (!m) return ['manifest is not an object'];
@@ -175,6 +213,12 @@ export function validateManifest(m: Partial<Manifest> | null, exists: (p: string
   if (hasDocs && hasNone) e.push('launch.docs and launch.docsNone are mutually exclusive: give exactly one');
   else if (!hasDocs && !hasNone) e.push('launch.docs must list the docs this PR updates (or launch.docsNone must say why none changed)');
   else if (hasNone && (typeof m.launch.docsNone !== 'string' || m.launch.docsNone.trim().length < 20)) e.push('launch.docsNone must be a reason of at least 20 characters');
+  for (const [id, a] of Object.entries(m.acceptedGates ?? {})) {
+    if (!ACCEPTABLE_GATES.includes(id)) e.push(`acceptedGates.${id}: only ${ACCEPTABLE_GATES.join('/')} may be accepted`);
+    if (typeof a?.reason !== 'string' || a.reason.trim().length < 40) e.push(`acceptedGates.${id}.reason must be at least 40 characters`);
+    if (!a?.isolationEvidence?.trim()) e.push(`acceptedGates.${id}.isolationEvidence missing`);
+    if (!a?.approvedBy?.trim()) e.push(`acceptedGates.${id}.approvedBy missing`);
+  }
   if (!m.launch?.prodPlaywright?.length) e.push('launch.prodPlaywright needs at least one prod e2e file');
   for (const p of [...(m.launch?.prodPlaywright ?? []), ...(m.ux?.playwright ?? []), ...(m.regression?.vitest ?? []), ...(m.ux?.vitest ?? [])]) {
     if (!exists(p)) e.push(`file not found: ${p}`);
@@ -185,7 +229,7 @@ export function validateManifest(m: Partial<Manifest> | null, exists: (p: string
 /** pre: MERGE-READY needs every pre gate. post: LAUNCH-READY needs every gate, pre and post. */
 export function verdict(phase: Phase, gates: Gate[]): 'MERGE-READY' | 'LAUNCH-READY' | 'NO-GO' {
   const scope = phase === 'pre' ? gates.filter((g) => g.phase === 'pre') : gates;
-  const ok = scope.length > 0 && scope.every((g) => g.status === 'pass');
+  const ok = scope.length > 0 && scope.every((g) => g.status === 'pass' || g.status === 'accepted');
   if (!ok) return 'NO-GO';
   return phase === 'pre' ? 'MERGE-READY' : 'LAUNCH-READY';
 }

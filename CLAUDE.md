@@ -110,7 +110,7 @@ then after merge + deploy `--phase post --merge-sha <sha>` (verdict LAUNCH-READY
 Functional (each design goal maps to named test files), Regression (typecheck with no new errors per file, core ledger/tax/payroll
 guards, full vitest suite vs the floor in `tests/scorecard/baseline.json`), UX (kit/hygiene/i18n guards, ticked consistency checklist,
 prod axe/locale run), Launch (CI incl. Shell Tests, docs updated, rollback stated, deploy verified, prod e2e on three markets).
-Skipped, flaky, zero-test or not-run all FAIL. A new PR copies `docs/superpowers/scorecards/_template.json`.
+Skipped, flaky, zero-test or not-run all FAIL; the one exception (user-approved 2026-11-21) is a manifest `acceptedGates` entry for R2/R3, honoured only when every failure is a vitest timeout in a file the PR does not change and each failing file passes re-run alone (shown as ACCEPTED). A new PR copies `docs/superpowers/scorecards/_template.json`.
 
 Programme scorecard (is the WHOLE scope delivered?): `npx tsx tests/scorecard/programme.ts [--phase post]` reads
 `docs/superpowers/scorecards/programme.json` (7 tester findings → 26 requirements → plan PRs → cross-PR prod journeys → owner calls)

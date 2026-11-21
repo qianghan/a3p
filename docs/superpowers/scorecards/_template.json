@@ -5,6 +5,7 @@
   "goals": [
     { "id": "G1", "text": "One design goal, phrased as an observable outcome", "covers": ["R-…  (programme.json requirement ids this PR is assigned)"], "tests": ["apps/web-next/src/__tests__/path/to.test.ts"] }
   ],
+  "_acceptedGatesComment": "Optional. Only R3/R2, only for load-timeout failures in untouched files that pass alone (auto-verified). Shape: \"acceptedGates\": { \"R3\": { \"reason\": \">=40 chars\", \"isolationEvidence\": \"...\", \"approvedBy\": \"...\" } }",
   "regression": { "vitest": [] },
   "ux": {
     "vitest": [],
