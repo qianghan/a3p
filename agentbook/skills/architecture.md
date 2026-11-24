@@ -48,6 +48,9 @@ Bills (`AbBill` + `AbBillLine` + `AbBillPayment`) post through `apps/web-next/sr
 ### Inventory (PR 5A)
 `AbInventoryItem` (qty Decimal(14,4), `onHandValueCents` Int, unique (tenantId, sku), soft delete) and `AbStockMovement` (signed qty + valueCents, unique (tenantId, sourceType, sourceId), `journalEntryId`). Accounts 1500 Inventory, 3900 Opening Balance Equity, 5990 COGS (US/CA; AU/UK use 5000), 5995 Shrinkage are in every chart pack. The sub-ledger total always equals the 1500 balance: every movement that changes value is part of a balanced, keyed, period-gated journal entry (bill / bill payment / `stock_opening` / `stock_adjust`). Opt-in via `AbTenantConfig.trackInventory`. Engine: `apps/web-next/src/lib/inventory.ts`; routes under `/api/v1/agentbook-expense/inventory`.
 
+### Inventory sales and COGS (PR 5B)
+COGS posts when the invoice posts revenue (creation): `POST /agentbook-invoice/invoices` calls `postInvoiceCogs` inside its transaction → per line with `itemId`, `relieveStock` (`stock_sale` / invoice line id, DR cogs | CR 1500). `invoices/:id/void` → `voidInvoiceCogs` (`stock_sale_void`, returns the line's net sold value exactly); `PATCH invoices/:id { lines }` (draft only) re-posts revenue (`invoice_edit_reverse` / `invoice_edit`, key `<invoiceId>:<rev>`) and COGS (`stock_sale_edit_reverse` + `stock_sale` keyed `<lineId>:<rev>`). Bill-line purchases are generation-keyed (`bill_line` / `<lineId>[:n]`) so an at_payment bill re-paid after a voided payment brings stock in again. Report: `GET /agentbook-expense/inventory/cogs`. Chat: `query-cogs`. Invariant (CI, `lib/__tests__/journal-property.test.ts`): across bills, payments, voids, tax, inventory and payroll entries Σdr = Σcr, AP = Σ open at_entry bills, 1500 = Σ item values.
+
 ## API Endpoints (140 total)
 
 | Plugin | Port | Endpoints | Key Routes |

@@ -146,5 +146,13 @@
   "stock_item_line": "• {name}: {qty} {unit} ({value})",
   "stock_low_heading_one": "**{count} item** is at or below its reorder point:",
   "stock_low_heading_other": "**{count} items** are at or below their reorder point:",
-  "stock_load_failed": "I couldn’t load your inventory. Please try again."
+  "stock_load_failed": "I couldn’t load your inventory. Please try again.",
+  "cogs_not_enabled": "Inventory tracking is off, so there is no cost of goods sold yet. Turn on “Track inventory” in Settings › Business Profile.",
+  "cogs_summary": "Cost of goods sold for {period} ({from} – {to}): **{value}**.",
+  "cogs_none": "No stocked items were sold in {period} ({from} – {to}), so cost of goods sold is {value}.",
+  "cogs_period_month": "this month",
+  "cogs_period_quarter": "this quarter",
+  "cogs_period_last_quarter": "last quarter",
+  "cogs_period_year": "this year",
+  "cogs_load_failed": "I couldn’t load your cost of goods sold. Please try again."
 }

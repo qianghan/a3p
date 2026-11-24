@@ -7,7 +7,8 @@ import { useI18n } from '@naap/plugin-sdk';
 /**
  * Inventory items (PR 5A): stock on hand, opening stock, adjustments, soft
  * delete. Purchases arrive through bill lines with an item (Bills page / API);
- * sales and COGS land in PR 5B. Gated on the tenant's trackInventory flag —
+ * sales relieve stock from invoices (PR 5B): COGS by quarter and a shrinkage
+ * write-off (reason required, booked to 5995) live here too. Gated on the tenant's trackInventory flag —
  * when it is off the page says where to turn it on.
  */
 const API = '/api/v1/agentbook-expense/inventory';
@@ -35,7 +36,8 @@ export function inventoryErrorKey(status: number, code?: string): string {
   return 'expenses_ui.items_save_failed';
 }
 
-type Dialog = null | { kind: 'new' } | { kind: 'opening' | 'adjust'; item: InventoryItem };
+type Dialog = null | { kind: 'new' } | { kind: 'opening' | 'adjust' | 'writeoff'; item: InventoryItem };
+interface CogsPeriod { period: string; cogsCents: number }
 
 export const ItemsPage: React.FC = () => {
   const { t, parseAmount, formatCurrency } = useI18n();
@@ -45,6 +47,7 @@ export const ItemsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cogs, setCogs] = useState<{ periods: CogsPeriod[]; totalCents: number } | null>(null);
   const [form, setForm] = useState({ name: '', sku: '', unit: 'each', reorderPoint: '', qty: '', amount: '', reason: '' });
 
   const load = useCallback(async () => {
@@ -55,6 +58,10 @@ export const ItemsPage: React.FC = () => {
       if (body?.success) {
         setItems(body.data ?? []);
         setSummary(body.summary ?? null);
+        if (body.summary?.trackInventory) {
+          const c = await fetch(`${API}/cogs?granularity=quarter`).then((r) => r.json()).catch(() => null);
+          if (c?.success) setCogs({ periods: c.data.periods ?? [], totalCents: c.data.totalCents ?? 0 });
+        }
       }
     } finally {
       setLoading(false);
@@ -94,7 +101,15 @@ export const ItemsPage: React.FC = () => {
     } else {
       const amount = form.amount === '' ? null : parseAmount(form.amount);
       if (amount && !amount.ok) { setError(t('expenses_ui.items_save_failed')); return; }
-      if (dialog.kind === 'opening') {
+      if (dialog.kind === 'writeoff') {
+        // Shrinkage write-off: always a removal, at average cost, with a reason.
+        const n = Number(String(form.qty).replace(',', '.'));
+        if (!Number.isFinite(n) || n <= 0 || !form.reason.trim()) { setError(t('expenses_ui.items_writeoff_invalid')); return; }
+        ok = await send(`${API}/items/${dialog.item.id}/adjust`, 'POST', {
+          qty: -n, valueCents: null, reason: form.reason.trim(),
+          idempotencyKey: `web-wo-${dialog.item.id}-${Date.now()}`,
+        });
+      } else if (dialog.kind === 'opening') {
         ok = await send(`${API}/items/${dialog.item.id}/opening`, 'POST', { qty: form.qty, valueCents: amount?.cents ?? 0 });
       } else {
         ok = await send(`${API}/items/${dialog.item.id}/adjust`, 'POST', {
@@ -177,6 +192,7 @@ export const ItemsPage: React.FC = () => {
                   <td className="py-2 text-right whitespace-nowrap">
                     <button type="button" className="text-xs text-primary mr-2" onClick={() => open({ kind: 'opening', item: i })}>{t('expenses_ui.items_opening_stock')}</button>
                     <button type="button" className="text-xs text-primary mr-2" onClick={() => open({ kind: 'adjust', item: i })}>{t('expenses_ui.items_adjust')}</button>
+                    <button type="button" className="text-xs text-primary mr-2" onClick={() => open({ kind: 'writeoff', item: i })}>{t('expenses_ui.items_write_off')}</button>
                     <button type="button" className="text-xs text-destructive" onClick={() => remove(i)}>{t('expenses_ui.items_delete')}</button>
                   </td>
                 </tr>
@@ -186,6 +202,36 @@ export const ItemsPage: React.FC = () => {
         </div>
       )}
 
+      {summary?.trackInventory && cogs && (
+        <section data-testid="cogs-by-period" className="mt-6">
+          <h2 className="text-base font-semibold mb-2">{t('expenses_ui.items_cogs_by_quarter')}</h2>
+          {cogs.periods.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('expenses_ui.items_cogs_empty')}</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                  <th className="py-2 pr-2">{t('expenses_ui.items_period')}</th>
+                  <th className="py-2 text-right">{t('expenses_ui.items_cost_of_goods_sold')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cogs.periods.map((p) => (
+                  <tr key={p.period} data-testid="cogs-row" className="border-b border-border">
+                    <td className="py-2 pr-2">{p.period}</td>
+                    <td className="py-2 text-right tabular-nums">{formatCurrency(p.cogsCents, currency)}</td>
+                  </tr>
+                ))}
+                <tr className="font-semibold">
+                  <td className="py-2 pr-2">{t('expenses_ui.items_total')}</td>
+                  <td data-testid="cogs-total" className="py-2 text-right tabular-nums">{formatCurrency(cogs.totalCents, currency)}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
+
       {error && !dialog && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
 
       {dialog && (
@@ -193,7 +239,7 @@ export const ItemsPage: React.FC = () => {
           <form onSubmit={submit} className="w-full max-w-md rounded-lg bg-background p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-semibold">
-                {dialog.kind === 'new' ? t('expenses_ui.items_new_item') : dialog.kind === 'opening' ? t('expenses_ui.items_opening_stock') : t('expenses_ui.items_adjust')}
+                {dialog.kind === 'new' ? t('expenses_ui.items_new_item') : dialog.kind === 'opening' ? t('expenses_ui.items_opening_stock') : dialog.kind === 'writeoff' ? t('expenses_ui.items_write_off') : t('expenses_ui.items_adjust')}
               </h2>
               <button type="button" onClick={() => setDialog(null)} aria-label={t('common.close')}><X className="w-4 h-4" /></button>
             </div>
@@ -203,6 +249,13 @@ export const ItemsPage: React.FC = () => {
                 <label className="block text-sm">{t('expenses_ui.items_sku')}<input className={inputCls} value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></label>
                 <label className="block text-sm">{t('expenses_ui.items_unit')}<input className={inputCls} value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></label>
                 <label className="block text-sm">{t('expenses_ui.items_reorder_point')}<input inputMode="decimal" className={inputCls} value={form.reorderPoint} onChange={(e) => setForm({ ...form, reorderPoint: e.target.value })} /></label>
+              </>
+            ) : dialog.kind === 'writeoff' ? (
+              <>
+                <p className="text-sm text-muted-foreground">{dialog.item.name}</p>
+                <p className="text-xs text-muted-foreground">{t('expenses_ui.items_writeoff_help')}</p>
+                <label className="block text-sm">{t('expenses_ui.items_quantity_to_write_off')}<input required inputMode="decimal" className={inputCls} value={form.qty} onChange={(e) => setForm({ ...form, qty: e.target.value })} /></label>
+                <label className="block text-sm">{t('expenses_ui.items_reason')}<input required className={inputCls} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label>
               </>
             ) : (
               <>

@@ -8,7 +8,11 @@ interface LineItem {
   description: string;
   quantity: number;
   rate: number;
+  /** PR 5B: inventory item sold on this line (stock relief + COGS on create). */
+  itemId?: string;
 }
+
+interface StockItem { id: string; name: string; sku: string | null; salePriceCents: number | null; onHandQty: number; isActive: boolean }
 
 interface Client {
   id: string;
@@ -103,6 +107,7 @@ export const NewInvoicePage: React.FC = () => {
   const [jurisdiction, setJurisdiction] = useState<string>('us');
   const [region, setRegion] = useState<string>('');
   const [taxRatePercent, setTaxRatePercent] = useState<number>(0);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
 
   // Load existing clients
   useEffect(() => {
@@ -125,6 +130,13 @@ export const NewInvoicePage: React.FC = () => {
           setJurisdiction(d.data.jurisdiction);
           setRegion(d.data.region || '');
           setTaxRatePercent(defaultTaxRatePercent(d.data.jurisdiction, d.data.region || ''));
+        }
+        // PR 5B: the item picker shows only when the tenant tracks inventory.
+        if (d.success && d.data?.trackInventory === true) {
+          fetch('/api/v1/agentbook-expense/inventory/items')
+            .then(r => r.json())
+            .then(it => { if (it.success && Array.isArray(it.data)) setStockItems(it.data.filter((x: StockItem) => x.isActive)); })
+            .catch(() => {});
         }
       })
       .catch(() => {});
@@ -167,6 +179,16 @@ export const NewInvoicePage: React.FC = () => {
     setLineItems((prev) =>
       prev.map((li) => (li.id === id ? { ...li, [field]: value } : li))
     );
+  };
+
+  const pickItem = (id: string, itemId: string) => {
+    const it = stockItems.find((x) => x.id === itemId);
+    setLineItems((prev) => prev.map((li) => (li.id !== id ? li : {
+      ...li,
+      itemId: itemId || undefined,
+      description: li.description || it?.name || '',
+      rate: li.rate || (it?.salePriceCents != null ? it.salePriceCents / 100 : 0),
+    })));
   };
 
   const subtotal = lineItems.reduce((sum, li) => sum + li.quantity * li.rate, 0);
@@ -218,9 +240,10 @@ export const NewInvoicePage: React.FC = () => {
       //    before posting. The original-currency block goes alongside.
       const isForeign = currency !== tenantCurrency;
       const rateMultiplier = isForeign && fxRate ? fxRate : 1;
-      const bookedLines = validLines.map(({ description: desc, quantity, rate }) => ({
+      const bookedLines = validLines.map(({ description: desc, quantity, rate, itemId }) => ({
         description: desc,
         quantity,
+        ...(itemId ? { itemId } : {}),
         rateCents: Math.round(rate * 100 * rateMultiplier),
       }));
       const originalTotalCents = isForeign
@@ -463,6 +486,23 @@ export const NewInvoicePage: React.FC = () => {
                     placeholder={t('invoice_ui.item_description')}
                     className={fieldClass}
                   />
+                  {stockItems.length > 0 && (
+                    <label className="block text-xs font-medium mt-2 text-muted-foreground">
+                      {t('invoice_ui.inventory_item')}
+                      <select
+                        value={li.itemId ?? ''}
+                        onChange={(e) => pickItem(li.id, e.target.value)}
+                        className={`${fieldClass} mt-1`}
+                      >
+                        <option value="">{t('invoice_ui.no_inventory_item')}</option>
+                        {stockItems.map((it) => (
+                          <option key={it.id} value={it.id}>
+                            {it.sku ? `${it.name} (${it.sku})` : it.name} · {t('invoice_ui.in_stock_count', { qty: it.onHandQty })}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
                 <div className="sm:col-span-2">
                   <label className="sm:hidden block text-xs font-medium mb-1 text-muted-foreground">{t('invoice_ui.quantity')}

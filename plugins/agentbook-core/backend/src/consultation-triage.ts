@@ -155,6 +155,10 @@ const DATA_QUESTION = [
   /bas en stock|rupture de stock|\ben stock\b|stock disponible|niveaux? de stock|valeur (?:de |du )?(?:mon |l['’])?(?:inventaire|stock)|inventaire[^.?!]{0,20}vaut|commander (?:à|a) nouveau|r[ée]approvisionn|r[ée]assort/i,
   /库存|缺货|断货|补货|还剩多少/,
 
+  // COGS (PR 5B): "What's my COGS this quarter?" is a figure from the user's
+  // own books. Mirrors QUERY_COGS_PATTERN in built-in-skills.ts.
+  /\bcogs\b|\bcost of (?:goods(?: sold)?|sales)\b|co[uû]ts? des (?:marchandises|ventes)|销售成本|销货成本|商品成本/i,
+
   // Bills / payables. "What bills are due this week?" — the phrasing
   // manage-bills' own description promises — opened "What" and ended "?".
   /\bbills?\b[^.?!]{0,30}\bdue\b|\boverdue bills?\b|\baccounts payable\b/i,

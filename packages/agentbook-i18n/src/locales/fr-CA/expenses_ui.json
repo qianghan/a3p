@@ -192,5 +192,14 @@
   "items_save": "Enregistrer",
   "items_duplicate_sku": "Un article avec cette UGS existe déjà.",
   "items_conflict": "Cet article a changé pendant l’enregistrement. Veuillez réessayer.",
-  "items_save_failed": "Impossible d’enregistrer. Veuillez réessayer."
+  "items_save_failed": "Impossible d’enregistrer. Veuillez réessayer.",
+  "items_write_off": "Radier",
+  "items_writeoff_help": "Stock endommagé, perdu ou volé. Il est retiré au coût moyen et comptabilisé en pertes d’inventaire.",
+  "items_quantity_to_write_off": "Quantité à radier",
+  "items_writeoff_invalid": "Entrez une quantité supérieure à zéro et un motif.",
+  "items_cogs_by_quarter": "Coût des marchandises vendues par trimestre",
+  "items_cogs_empty": "Aucune vente d’articles stockés pour l’instant.",
+  "items_period": "Période",
+  "items_cost_of_goods_sold": "Coût des marchandises vendues",
+  "items_total": "Total général"
 }
