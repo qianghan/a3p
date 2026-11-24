@@ -192,5 +192,14 @@
   "items_save": "保存",
   "items_duplicate_sku": "已存在使用此 SKU 的商品。",
   "items_conflict": "保存时该商品已被更改，请重试。",
-  "items_save_failed": "无法保存，请重试。"
+  "items_save_failed": "无法保存，请重试。",
+  "items_write_off": "核销",
+  "items_writeoff_help": "损坏、丢失或被盗的库存。按平均成本移除并计入库存损耗。",
+  "items_quantity_to_write_off": "核销数量",
+  "items_writeoff_invalid": "请输入大于零的数量和原因。",
+  "items_cogs_by_quarter": "按季度的销售成本",
+  "items_cogs_empty": "尚无库存商品销售。",
+  "items_period": "期间",
+  "items_cost_of_goods_sold": "销售成本",
+  "items_total": "合计"
 }

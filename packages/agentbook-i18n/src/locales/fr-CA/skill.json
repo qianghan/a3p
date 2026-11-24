@@ -146,5 +146,13 @@
   "stock_item_line": "• {name} : {qty} {unit} ({value})",
   "stock_low_heading_one": "**{count} article** est au seuil de réapprovisionnement ou en dessous :",
   "stock_low_heading_other": "**{count} articles** sont au seuil de réapprovisionnement ou en dessous :",
-  "stock_load_failed": "Je n’ai pas pu charger vos stocks. Veuillez réessayer."
+  "stock_load_failed": "Je n’ai pas pu charger vos stocks. Veuillez réessayer.",
+  "cogs_not_enabled": "Le suivi de l’inventaire est désactivé, il n’y a donc pas encore de coût des marchandises vendues. Activez « Suivre l’inventaire » dans Paramètres › Profil d’entreprise.",
+  "cogs_summary": "Coût des marchandises vendues pour {period} ({from} – {to}) : **{value}**.",
+  "cogs_none": "Aucun article stocké n’a été vendu pour {period} ({from} – {to}); le coût des marchandises vendues est de {value}.",
+  "cogs_period_month": "ce mois-ci",
+  "cogs_period_quarter": "ce trimestre",
+  "cogs_period_last_quarter": "le trimestre dernier",
+  "cogs_period_year": "cette année",
+  "cogs_load_failed": "Je n’ai pas pu charger votre coût des marchandises vendues. Veuillez réessayer."
 }

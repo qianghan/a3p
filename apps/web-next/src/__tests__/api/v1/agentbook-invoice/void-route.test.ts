@@ -11,6 +11,9 @@ const journalEntryCreate = vi.fn();
 const clientUpdate = vi.fn();
 const eventCreate = vi.fn();
 const transaction = vi.fn();
+const journalLineCreate = vi.fn(async () => ({}));
+/** Lines the reversal wrote through the ledger writer, in order. */
+const writtenLines = () => journalLineCreate.mock.calls.map((c) => { const d = (c as unknown as [{ data: Record<string, unknown> }])[0].data; return { tenantId: d.tenantId, accountId: d.accountId, debitCents: d.debitCents, creditCents: d.creditCents, description: d.description }; });
 
 vi.mock('@/lib/agentbook-tenant', () => ({
   safeResolveAgentbookTenant: (...a: unknown[]) => resolveTenant(...a),
@@ -34,6 +37,8 @@ import { POST } from '@/app/api/v1/agentbook-invoice/invoices/[id]/void/route';
 
 const txHandle = {
   abJournalEntry: { create: (...a: unknown[]) => journalEntryCreate(...a) },
+  abJournalLine: { create: (...a: unknown[]) => journalLineCreate(...(a as [])) },
+  abFiscalPeriod: { findUnique: async () => null },
   abInvoice: { update: (...a: unknown[]) => invoiceUpdate(...a) },
   abClient: { update: (...a: unknown[]) => clientUpdate(...a) },
   abEvent: { create: (...a: unknown[]) => eventCreate(...a) },
@@ -53,6 +58,7 @@ beforeEach(() => {
   clientUpdate.mockReset();
   eventCreate.mockReset();
   transaction.mockReset();
+  journalLineCreate.mockClear();
 
   resolveTenant.mockResolvedValue({ tenantId: 'tenant-1' });
   invoiceUpdate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'inv-1', status: data.status }));
@@ -86,15 +92,13 @@ describe('POST /api/v1/agentbook-invoice/invoices/:id/void — reversal correctn
       data: expect.objectContaining({
         sourceType: 'invoice_void',
         sourceId: 'inv-1',
-        lines: {
-          create: [
-            { tenantId: 'tenant-1', accountId: 'acct-ar', debitCents: 0, creditCents: 110000, description: expect.any(String) },
-            { tenantId: 'tenant-1', accountId: 'acct-rev', debitCents: 100000, creditCents: 0, description: expect.any(String) },
-            { tenantId: 'tenant-1', accountId: 'acct-gst', debitCents: 10000, creditCents: 0, description: expect.any(String) },
-          ],
-        },
       }),
     }));
+    expect(writtenLines()).toEqual([
+      { tenantId: 'tenant-1', accountId: 'acct-ar', debitCents: 0, creditCents: 110000, description: expect.any(String) },
+      { tenantId: 'tenant-1', accountId: 'acct-rev', debitCents: 100000, creditCents: 0, description: expect.any(String) },
+      { tenantId: 'tenant-1', accountId: 'acct-gst', debitCents: 10000, creditCents: 0, description: expect.any(String) },
+    ]);
 
     // Net effect zeroes each account: AR reversal credit == original debit,
     // Revenue reversal debit == original credit, GST reversal debit == original credit.
@@ -118,14 +122,12 @@ describe('POST /api/v1/agentbook-invoice/invoices/:id/void — reversal correctn
 
     expect(journalEntryCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
-        lines: {
-          create: [
-            { tenantId: 'tenant-1', accountId: 'acct-ar', debitCents: 0, creditCents: 100000, description: expect.any(String) },
-            { tenantId: 'tenant-1', accountId: 'acct-rev', debitCents: 100000, creditCents: 0, description: expect.any(String) },
-          ],
-        },
       }),
     }));
+    expect(writtenLines()).toEqual([
+      { tenantId: 'tenant-1', accountId: 'acct-ar', debitCents: 0, creditCents: 100000, description: expect.any(String) },
+      { tenantId: 'tenant-1', accountId: 'acct-rev', debitCents: 100000, creditCents: 0, description: expect.any(String) },
+    ]);
   });
 
   it('skips the reversal journal entry (but still voids) when the invoice never had one (e.g. a chat draft)', async () => {

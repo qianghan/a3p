@@ -5,8 +5,8 @@
     "reason": "Measured 160 kB on 2026-10-22 (baseline 105 kB, +55). Home gained the KPI strip, alert carousel, pull-to-refresh, KPI sheets and the offline snapshot across PRs 3-6. The user-facing gate passes on production (Home KPIs visible within 2.5 s on Slow 4G + 4x CPU, perf.spec.ts), so the overage is accepted for now. Ratcheted at measured + 5 kB. What dominates the extra bytes has not been analysed."
   },
   "/app/chat": {
-    "allowanceKb": 52,
-    "reason": "Measured 154 kB on 2026-10-22 (baseline 106 kB, +48). Chat was rebuilt in PR 6 (history, plan cards, receipt cards, composer, formatter, keyboard hooks). Home's Slow-4G gate passes and chat has no timing gate of its own yet. Ratcheted at measured + 4 kB. What dominates the extra bytes has not been analysed."
+    "allowanceKb": 56,
+    "reason": "Measured 154 kB on 2026-10-22 (baseline 106 kB, +48). Chat was rebuilt in PR 6 (history, plan cards, receipt cards, composer, formatter, keyboard hooks). Home's Slow-4G gate passes and chat has no timing gate of its own yet. Ratcheted at measured + 4 kB. What dominates the extra bytes has not been analysed. Raised +4 kB on 2026-11-23 (PR 5B, measured 159 kB): the i18n catalog ships on every route, so the AP/inventory/payroll programme's catalog keys grew chat by ~5 kB with no chat code change; same cause and the same revisit-the-catalog-axes note as /app/docs."
   },
   "/app/docs": {
     "allowanceKb": 45,

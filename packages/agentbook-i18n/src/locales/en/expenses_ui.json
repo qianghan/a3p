@@ -192,5 +192,14 @@
   "items_save": "Save",
   "items_duplicate_sku": "An item with this SKU already exists.",
   "items_conflict": "This item changed while saving. Please try again.",
-  "items_save_failed": "Couldn’t save. Please try again."
+  "items_save_failed": "Couldn’t save. Please try again.",
+  "items_write_off": "Write off",
+  "items_writeoff_help": "Damaged, lost or stolen stock. It is removed at average cost and booked to Inventory Shrinkage.",
+  "items_quantity_to_write_off": "Quantity to write off",
+  "items_writeoff_invalid": "Enter a quantity above zero and a reason.",
+  "items_cogs_by_quarter": "Cost of goods sold by quarter",
+  "items_cogs_empty": "No sales of stocked items yet.",
+  "items_period": "Period",
+  "items_cost_of_goods_sold": "Cost of goods sold",
+  "items_total": "Total"
 }

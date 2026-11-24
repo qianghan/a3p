@@ -103,5 +103,8 @@
   "stop": "Arrêter",
   "start_timer": "Démarrer le chronomètre",
   "download_pdf": "Télécharger le PDF",
-  "decline": "Refuser"
+  "decline": "Refuser",
+  "inventory_item": "Article en stock",
+  "no_inventory_item": "Aucun (article non stocké)",
+  "in_stock_count": "{qty} en stock"
 }

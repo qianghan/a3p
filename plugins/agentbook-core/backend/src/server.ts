@@ -3504,6 +3504,23 @@ If no skill matches well, use "general-question" with parameter "question" = the
 // PR 14 / G-016: wraps the core logic with per-skill metric collection.
 // Every execution writes an AbSkillRun row fire-and-forget (DB failures
 // during metric write do NOT block or break the user response).
+/** PR 5B: the period a COGS question asks about (UTC calendar; default this quarter). */
+export function cogsPeriodFromText(text: string, now: Date): { from: Date; to: Date; periodKey: string } {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const q = Math.floor(m / 3) * 3;
+  if (/\blast quarter\b|\bprevious quarter\b|trimestre (?:dernier|pr[ée]c[ée]dent)|dernier trimestre|上(?:个)?季度/i.test(text)) {
+    return { from: new Date(Date.UTC(y, q - 3, 1)), to: new Date(Date.UTC(y, q, 1)), periodKey: 'cogs_period_last_quarter' };
+  }
+  if (/\bthis year\b|\byear to date\b|\bytd\b|cette ann[ée]e|depuis le d[ée]but de l['’]ann[ée]e|今年|本年/i.test(text)) {
+    return { from: new Date(Date.UTC(y, 0, 1)), to: new Date(Date.UTC(y + 1, 0, 1)), periodKey: 'cogs_period_year' };
+  }
+  if (/\bthis month\b|ce mois|本月|这个月/i.test(text)) {
+    return { from: new Date(Date.UTC(y, m, 1)), to: new Date(Date.UTC(y, m + 1, 1)), periodKey: 'cogs_period_month' };
+  }
+  return { from: new Date(Date.UTC(y, q, 1)), to: new Date(Date.UTC(y, q + 3, 1)), periodKey: 'cogs_period_quarter' };
+}
+
 export async function executeClassification(
   classification: ClassificationResult,
   text: string,
@@ -4873,6 +4890,35 @@ async function _executeClassificationCore(
     } catch (err) {
       console.error('[payroll-status] error:', err);
       return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'payroll-status', skillResponse: null, responseData: { message: "I couldn't load payroll. Please try again.", actions: [], chartData: null, skillUsed: 'payroll-status', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handler: query-cogs — cost of goods sold for a period (PR 5B).
+  // Same reading as GET /agentbook-expense/inventory/cogs: net value of the
+  // sale-family stock movements (sales − voids − edit reversals) in [from, to).
+  if (selectedSkill.name === 'query-cogs') {
+    try {
+      const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+      let message: string;
+      let cogsCents = 0;
+      if (cfg?.trackInventory !== true) {
+        message = t('skill.cogs_not_enabled');
+      } else {
+        const { from, to, periodKey } = cogsPeriodFromText(text, new Date());
+        const rows = await db.abStockMovement.findMany({
+          where: { tenantId, sourceType: { in: ['stock_sale', 'stock_sale_void', 'stock_sale_edit_reverse'] }, date: { gte: from, lt: to } },
+        });
+        cogsCents = -rows.reduce((s: number, m: { valueCents: number }) => s + m.valueCents, 0);
+        const day = (d: Date) => d.toISOString().slice(0, 10);
+        const last = new Date(to.getTime() - 86_400_000);
+        const args = { period: t(`skill.${periodKey}`), from: day(from), to: day(last), value: tenantMoneyCompact(cogsCents) };
+        message = rows.length === 0 ? t('skill.cogs_none', args) : t('skill.cogs_summary', args);
+      }
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'query-cogs' } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: 'query-cogs', skillResponse: { data: { cogsCents } }, responseData: { message, actions: [], chartData: null, skillUsed: 'query-cogs', confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error('[query-cogs] error:', err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'query-cogs', skillResponse: null, responseData: { message: t('skill.cogs_load_failed'), actions: [], chartData: null, skillUsed: 'query-cogs', confidence: 0, latencyMs: Date.now() - startTime } };
     }
   }
 

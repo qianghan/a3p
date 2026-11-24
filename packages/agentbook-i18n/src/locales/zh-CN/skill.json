@@ -146,5 +146,13 @@
   "stock_item_line": "• {name}：{qty} {unit}（{value}）",
   "stock_low_heading_one": "**{count} 种商品**已达到或低于补货点：",
   "stock_low_heading_other": "**{count} 种商品**已达到或低于补货点：",
-  "stock_load_failed": "无法加载库存，请重试。"
+  "stock_load_failed": "无法加载库存，请重试。",
+  "cogs_not_enabled": "库存跟踪未开启，因此还没有销售成本。请在 设置 › 企业资料 中开启“跟踪库存”。",
+  "cogs_summary": "{period}（{from} – {to}）的销售成本：**{value}**。",
+  "cogs_none": "{period}（{from} – {to}）没有售出库存商品，销售成本为 {value}。",
+  "cogs_period_month": "本月",
+  "cogs_period_quarter": "本季度",
+  "cogs_period_last_quarter": "上季度",
+  "cogs_period_year": "今年",
+  "cogs_load_failed": "无法加载您的销售成本，请重试。"
 }
