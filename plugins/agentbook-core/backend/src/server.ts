@@ -4908,7 +4908,8 @@ async function _executeClassificationCore(
         const rows = await db.abStockMovement.findMany({
           where: { tenantId, sourceType: { in: ['stock_sale', 'stock_sale_void', 'stock_sale_edit_reverse'] }, date: { gte: from, lt: to } },
         });
-        cogsCents = -rows.reduce((s: number, m: { valueCents: number }) => s + m.valueCents, 0);
+        // 0 - sum, not -sum: a fully netted period sums to 0 and -0 renders as "-$0".
+        cogsCents = 0 - rows.reduce((s: number, m: { valueCents: number }) => s + m.valueCents, 0);
         const day = (d: Date) => d.toISOString().slice(0, 10);
         const last = new Date(to.getTime() - 86_400_000);
         const args = { period: t(`skill.${periodKey}`), from: day(from), to: day(last), value: tenantMoneyCompact(cogsCents) };
