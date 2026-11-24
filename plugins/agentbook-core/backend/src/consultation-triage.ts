@@ -144,6 +144,27 @@ const DATA_QUESTION = [
   /fr[ée]quence (?:de |des )?(?:la )?(?:paie|paye|r[ée]mun[ée]ration)|fr[ée]quence[^.?!]{0,40}pay[ée]|taux (?:de paie|de r[ée]mun[ée]ration|horaire)|\bmes employ[ée]s\b|\bsalaire de\b/i,
   /发薪|薪资频率|工资频率|多久.{0,6}(?:发|付).{0,3}(?:工资|薪)|员工.{0,8}(?:频率|工资|薪|名单|列表)/,
 
+  // Stock / inventory (PR 5A prod finding). Maya asked "Qu’est-ce qui est bas
+  // en stock ?" and the advisor answered "je n'ai pas d'informations sur les
+  // stocks" — query-stock was never reached. Stock levels are rows in the
+  // user's own books. Mirrors QUERY_STOCK_PATTERN in built-in-skills.ts.
+  // Deliberately no bare "inventory"/"inventaire": "Should I track
+  // inventory?" / "Est-ce que je devrais suivre mon inventaire ?" are advice.
+  /\b(?:low (?:on |in )?stock|out of stock|in stock|stock (?:on hand|levels?|value|count)|inventory (?:value|worth|levels?|on hand)|(?:my|total|the) inventory (?:value|worth|is worth)|reorder|(?:items?|products?|stock)\b[^.?!]{0,20}\brunning low)\b/i,
+  /\bhow many\b[^.?!]{1,30}\b(?:do i have|have i got|left|in stock)\b/i,
+  /bas en stock|rupture de stock|\ben stock\b|stock disponible|niveaux? de stock|valeur (?:de |du )?(?:mon |l['’])?(?:inventaire|stock)|inventaire[^.?!]{0,20}vaut|commander (?:à|a) nouveau|r[ée]approvisionn|r[ée]assort/i,
+  /库存|缺货|断货|补货|还剩多少/,
+
+  // Bills / payables. "What bills are due this week?" — the phrasing
+  // manage-bills' own description promises — opened "What" and ended "?".
+  /\bbills?\b[^.?!]{0,30}\bdue\b|\boverdue bills?\b|\baccounts payable\b/i,
+
+  // Pay-run drafts (PR 4e) and polite imperatives. "Can you change Jane to
+  // weekly?" is an instruction, not a question about rules; only an action
+  // verb after "can you" counts, so "can you explain GST?" stays advisory.
+  /\b(?:draft|next) pay ?runs?\b/i,
+  /^\s*(?:can|could|would|will) you (?:please )?(?:change|set|switch|update|record|log|add|create|send|generate|prepare|draft|run|mark|delete|categori[sz]e)\b/i,
+
   // ── Chinese ───────────────────────────────────────────────────────────
   // Without these, EVERY Chinese question reached the `[?？]$` catch below
   // and went to the advisor, which cannot read the ledger. Observed on

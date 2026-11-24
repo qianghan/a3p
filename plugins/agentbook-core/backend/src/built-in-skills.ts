@@ -15,6 +15,12 @@ export const EMPLOYEE_EDIT_PATTERN =
  */
 export const EMPLOYEE_QUERY_PATTERN =
   "how often\\b.{0,40}\\bpay|\\bpaid (weekly|bi-?\\s?weekly|fortnightly|semi-?\\s?monthly|monthly)\\b|fr[ée]quence (de |des )?(la )?(paie|paye|r[ée]mun[ée]ration)|fr[ée]quence.{0,40}pay[ée]|taux (de paie|de r[ée]mun[ée]ration|horaire)|\\b(liste|affiche|montre)[a-z]*\\b.{0,20}employ[ée]|发薪|薪资频率|工资频率|多久.{0,6}(发|付).{0,3}(工资|薪)|(列出|显示|查看).{0,6}员工|员工.{0,8}(频率|工资|薪|名单|列表)";
+/**
+ * PR 5A — a stock / inventory question in en / fr-CA / zh-CN. Mirrored in
+ * consultation-triage.ts so these questions reach the skill layer.
+ */
+export const QUERY_STOCK_PATTERN =
+  "out of stock|low (on |in )?stock|stock (value|count)|(items?|products?|stock)\\b.{0,20}\\brunning low|bas en stock|rupture de stock|\\ben stock\\b|stock disponible|niveaux? de stock|inventaire|commander (à|a) nouveau|r[ée]approvisionn|库存|缺货|断货|补货";
 /** PR 4e — "set up next pay runs", "generate draft pay runs". */
 export const PAY_RUN_DRAFTS_PATTERN =
   "\\b(set ?up|generate|create|prepare|draft)\\b.{0,30}\\bpay ?runs?\\b|\\bnext pay ?runs?\\b|\\bdraft pay ?runs?\\b";
@@ -974,7 +980,7 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     name: 'query-stock',
     description: 'Answer inventory questions — stock on hand, quantity and value per item, total stock value, which items are low on stock.',
     category: 'bookkeeping',
-    triggerPatterns: ['stock on hand', 'in stock', 'low stock', 'low on stock', 'inventory', 'stock level', 'how many .* (left|in stock)', 'reorder'],
+    triggerPatterns: [QUERY_STOCK_PATTERN, 'stock on hand', 'in stock', 'low stock', 'low on stock', 'inventory', 'stock level', 'how many .* (left|in stock)', 'reorder'],
     parameters: {},
     endpoint: { method: 'INTERNAL', url: '' },
   },
