@@ -146,7 +146,10 @@ async function editOnce(tx: any, tenantId: string, invoiceId: string, edits: { i
   const taxCents = taxLines.reduce((s, l) => s + l.creditCents, 0);
   const total = subtotalCents + taxCents;
 
-  const rev = (await tx.abJournalEntry.count({ where: { tenantId, sourceType: 'invoice_edit_reverse', sourceId: { startsWith: `${inv.id}:` } } })) + 1;
+  // Count BOTH edit entry kinds: a draft with no revenue entry posts no
+  // reversal, so counting reversals alone reused revision 1 on the next edit.
+  const countEdits = (sourceType: string) => tx.abJournalEntry.count({ where: { tenantId, sourceType, sourceId: { startsWith: `${inv.id}:` } } });
+  const rev = Math.max(await countEdits('invoice_edit_reverse'), await countEdits('invoice_edit')) + 1;
   const key = `${inv.id}:${rev}`;
   if (origLines.length > 0) {
     await appendBalancedEntry(tx, tenantId, { date, memo: `EDIT - Reverse Invoice ${inv.number}`, sourceType: 'invoice_edit_reverse', sourceId: key },

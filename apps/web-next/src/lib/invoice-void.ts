@@ -8,6 +8,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { voidInvoiceCogs } from '@/lib/inventory';
+import { appendBalancedEntry, assertPeriodOpen, LedgerPeriodClosedError } from '@/lib/ledger-writer';
 
 export async function voidInvoice(tenantId: string, id: string): Promise<NextResponse> {
   const invoice = await db.abInvoice.findFirst({
@@ -51,32 +52,22 @@ export async function voidInvoice(tenantId: string, id: string): Promise<NextRes
     );
   }
 
-  const updated = await db.$transaction(async (tx) => {
+  const voidDate = new Date();
+  let updated;
+  try {
+    updated = await db.$transaction(async (tx) => {
+    // Same posting rules as the inventory half: closed-period check first, then
+    // the ledger writer ('invoice_void' / invoice.id; a replay is idempotent).
+    await assertPeriodOpen(tx, tenantId, voidDate);
     if (originalLines.length > 0) {
-      await tx.abJournalEntry.create({
-        data: {
-          tenantId,
-          date: new Date(),
-          memo: `VOID - Reverse Invoice ${invoice.number}`,
-          // 'invoice_void', not 'invoice' — the original creation entry
-          // already holds (tenantId, 'invoice', invoice.id), and G-021's
-          // @@unique([tenantId, sourceType, sourceId]) would reject a
-          // second row under that same tuple (confirmed: this reversal
-          // insert throws P2002 under the old sourceType before this fix).
-          sourceType: 'invoice_void',
-          sourceId: invoice.id,
-          verified: true,
-          lines: {
-            create: originalLines.map((l) => ({
-              tenantId, // G-009
-              accountId: l.accountId,
-              debitCents: l.creditCents,
-              creditCents: l.debitCents,
-              description: `Reverse: ${l.description || `Invoice ${invoice.number}`}`,
-            })),
-          },
-        },
-      });
+      await appendBalancedEntry(tx, tenantId, {
+        date: voidDate, memo: `VOID - Reverse Invoice ${invoice.number}`, sourceType: 'invoice_void', sourceId: invoice.id,
+      }, originalLines.map((l) => ({
+        accountId: l.accountId,
+        debitCents: l.creditCents,
+        creditCents: l.debitCents,
+        description: `Reverse: ${l.description || `Invoice ${invoice.number}`}`,
+      })));
     }
 
     // PR 5B: return sold stock at the value it left with (stock_sale_void / line.id).
@@ -113,6 +104,12 @@ export async function voidInvoice(tenantId: string, id: string): Promise<NextRes
 
     return inv;
   });
+  } catch (err) {
+    if (err instanceof LedgerPeriodClosedError) {
+      return NextResponse.json({ success: false, code: 'period_closed', error: 'Today is in a closed period; reopen it to void this invoice' }, { status: 422 });
+    }
+    throw err;
+  }
 
   return NextResponse.json({ success: true, data: updated });
 }

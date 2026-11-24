@@ -303,6 +303,38 @@ describe('fix round 1: status transitions and edit-path posting guards', () => {
   });
 });
 
+describe('fix round 2', () => {
+  it('A: a draft with no revenue entry can be edited twice (distinct revision keys, no 500)', async () => {
+    const r = await createInvoice([{ description: 'Widgets', quantity: 2, rateCents: 1500, itemId: 'item-1' }]);
+    const id = r.body.data.id as string;
+    const lineId = (r.body.data.lines as Row[])[0].id as string;
+    const inv = memDb.table('abInvoice').rows.find((x) => x.id === id)!;
+    const je = inv.journalEntryId;
+    memDb.table('abJournalLine').rows = memDb.table('abJournalLine').rows.filter((l) => l.entryId !== je);
+    memDb.table('abJournalEntry').rows = memDb.table('abJournalEntry').rows.filter((e) => e.id !== je);
+    inv.journalEntryId = null;
+    const p1 = await call(PATCH, `/x/${id}`, { method: 'PATCH', body: { lines: [{ id: lineId, quantity: 3 }] } }, id);
+    const p2 = await call(PATCH, `/x/${id}`, { method: 'PATCH', body: { lines: [{ id: lineId, quantity: 4 }] } }, id);
+    expect(p1.status).toBe(200);
+    expect(p2.status).toBe(200);
+    expect(net('acc-rev')).toBe(-6000);
+    expect(net('acc-cogs')).toBe(2000);
+  });
+
+  it('C: void in a closed period is refused with nothing written (revenue or stock)', async () => {
+    const r = await createInvoice([{ description: 'Widgets', quantity: 2, rateCents: 1500, itemId: 'item-1' }]);
+    const id = r.body.data.id as string;
+    const now = new Date();
+    memDb.table('abFiscalPeriod').rows.push({ id: 'fp-now', tenantId: 't1', year: now.getUTCFullYear(), month: now.getUTCMonth() + 1, status: 'closed' });
+    const before = memDb.table('abJournalEntry').rows.length;
+    const v = await call(VOID, `/x/${id}/void`, { method: 'POST' }, id);
+    expect(v.status).toBe(422);
+    expect(memDb.table('abJournalEntry').rows.length).toBe(before);
+    expect(net('acc-rev')).toBe(-3000);
+    expect(memDb.table('abInvoice').rows[0].status).toBe('draft');
+  });
+});
+
 describe('COGS by period route', () => {
   it('reports the month net of voids', async () => {
     await createInvoice([{ description: 'W', quantity: 4, rateCents: 1500, itemId: 'item-1' }]);
