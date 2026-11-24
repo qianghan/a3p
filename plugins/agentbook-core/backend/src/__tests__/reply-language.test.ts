@@ -6,6 +6,9 @@ describe('detectMessageLanguage', () => {
   it('sees French by stopwords or accents', () => {
     expect(detectMessageLanguage('Montre-moi mes dépenses du mois')).toBe('fr');
     expect(detectMessageLanguage('combien ai-je dépensé en repas')).toBe('fr');
+    // Prod pass 2026-11-23: these scored one French signal and replied in English after English turns.
+    expect(detectMessageLanguage('Quelles factures à payer sont en retard ?')).toBe('fr');
+    expect(detectMessageLanguage('Quel est mon solde à payer ce trimestre ?')).toBe('fr');
   });
   it('sees English by stopwords', () => {
     expect(detectMessageLanguage('Categorize them')).toBe('en');

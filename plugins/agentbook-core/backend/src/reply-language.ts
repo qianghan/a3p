@@ -38,7 +38,7 @@ const FR_MARK = /[éèêëîïôûùçœ]/i;
 // `vous` etc. have no everyday Spanish/Portuguese/Italian equivalent spelled
 // the same way, so they stay.
 const FR_WORDS =
-  /\b(le|les|des|du|je|tu|nous|vous|pour|avec|dans|qui|pas|combien|montre|moi|oui|dépens\w*|facture\w*|catégori\w*|déjeuner|au|aux)\b/gi;
+  /\b(le|les|des|du|je|tu|nous|vous|pour|avec|dans|qui|pas|combien|montre|moi|oui|dépens\w*|facture\w*|catégori\w*|déjeuner|au|aux|quel|quelle|quels|quelles|payer|retard)\b/gi;
 // Everyday expense-chat vocabulary, so ordinary English is recognised without
 // pronouns ("Lunch at Le Petit Bistro $34"). One flat alternation of literal
 // words and single \w* tails - no nested quantifiers, so matching stays linear.

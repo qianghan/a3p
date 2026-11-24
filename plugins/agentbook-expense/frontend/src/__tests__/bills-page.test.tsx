@@ -158,5 +158,8 @@ describe('Bills page', () => {
     expect(row('b1').getByText('Ouverte')).toBeTruthy();
     expect(row('b1').getByRole('button', { name: 'Payer en partie' })).toBeTruthy();
     expect(screen.getByText('Ancienneté')).toBeTruthy();
+    // Money is locale-bound (prod pass 2026-11-23 showed "$12,756.00" on maya's French page).
+    const owing = row('b1').getByTestId('bill-owing-b1').textContent ?? '';
+    expect(owing).toMatch(/^84,50\s\$/); // fr-CA order: amount, comma decimals, then the sign
   });
 });

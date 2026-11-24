@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Receipt, Plus, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { ExpenseTabs } from '../components/ExpenseTabs';
-import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
+import { formatCurrency } from '@agentbook/i18n';
 import { useI18n } from '@naap/plugin-sdk';
 
 /**
@@ -98,9 +98,10 @@ const input = 'rounded-lg border border-border bg-background px-3 py-2 text-sm t
 const fieldLabel = 'grid gap-1 text-xs text-muted-foreground';
 
 export const BillsPage: React.FC = () => {
-  const { parseAmount, formatDateOnly, formatNumber, t } = useI18n();
+  const { parseAmount, formatDateOnly, formatNumber, t, locale } = useI18n();
   const currency = useTenantCurrency();
-  const money = (cents: number) => formatMoney(cents, currency);
+  // Locale-bound, like Items: fr-CA reads "12 756,00 $", not "$12,756.00".
+  const money = (cents: number) => formatCurrency(cents, locale, currency);
 
   const [bills, setBills] = useState<Bill[]>([]);
   const [summary, setSummary] = useState<Summary>({ openCents: 0, overdueCents: 0, count: 0 });
