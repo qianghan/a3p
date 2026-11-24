@@ -15,7 +15,17 @@ function matches(row: Row, where: Row = {}): boolean {
     if (v instanceof Date) return row[k] instanceof Date && row[k].getTime() === v.getTime();
     // Operators / relation filters are not modelled: fail loudly rather than
     // silently evaluate `row[k] === { in: [...] }` as false.
-    if (v !== null && typeof v === 'object') throw new Error(`fake-ledger-db: unsupported filter on ${k}`);
+    if (v !== null && typeof v === 'object') {
+      // The few operators the inventory queries use; anything else fails loudly.
+      const ops = v as Row;
+      const known = ['in', 'startsWith', 'gte', 'lt'];
+      if (Object.keys(ops).some((o) => !known.includes(o))) throw new Error(`fake-ledger-db: unsupported filter on ${k}`);
+      if (ops.in !== undefined && !(ops.in as unknown[]).includes(row[k])) return false;
+      if (ops.startsWith !== undefined && !(typeof row[k] === 'string' && row[k].startsWith(ops.startsWith))) return false;
+      if (ops.gte !== undefined && !(row[k] >= ops.gte)) return false;
+      if (ops.lt !== undefined && !(row[k] < ops.lt)) return false;
+      return true;
+    }
     return row[k] === v;
   });
 }

@@ -15,6 +15,9 @@ vi.mock('@naap/database', async () => {
   const t = (m: string) => memDb.table(m) as unknown as Record<string, (a: R) => Promise<R>>;
   const adapter: Record<string, unknown> = {
     featureFlag: { findUnique: async () => null },
+    abSalesTaxCollected: new Proxy({}, { get: (_o, p) => p === 'createMany'
+      ? async ({ data }: { data: R[] }) => { for (const d of data) await t('abSalesTaxCollected').create({ data: d }); return { count: data.length }; }
+      : (t('abSalesTaxCollected') as never)[p] }),
     abJournalEntry: new Proxy({}, { get: (_o, p) => p === 'create'
       ? async ({ data }: { data: R }) => {
         const { lines, ...rest } = data as R & { lines?: { create: R[] } };
@@ -199,6 +202,104 @@ describe('invoice void and edit', () => {
     const p = await call(PATCH, `/x/${id}`, { method: 'PATCH', body: { lines: [{ id: (r.body.data.lines as Row[])[0].id, quantity: 6 }] } }, id);
     expect(p.status).toBe(422);
     expect(net('acc-cogs')).toBe(1000);
+  });
+});
+
+describe('fix round 1: status transitions and edit-path posting guards', () => {
+  const make = async (qty = 2) => {
+    const r = await createInvoice([{ description: 'Widgets', quantity: qty, rateCents: 1500, itemId: 'item-1' }]);
+    return { id: r.body.data.id as string, lineId: (r.body.data.lines as Row[])[0].id as string };
+  };
+  const patch = (id: string, body: Row) => call(PATCH, `/x/${id}`, { method: 'PATCH', body }, id);
+
+  it('void → draft is refused, so a voided invoice can never be line-edited', async () => {
+    const { id, lineId } = await make();
+    await call(VOID, `/x/${id}/void`, { method: 'POST' }, id);
+    expect((await patch(id, { status: 'draft' })).status).toBe(422);
+    expect((await patch(id, { status: 'sent' })).status).toBe(422);
+    expect(memDb.table('abInvoice').rows[0].status).toBe('void');
+    expect((await patch(id, { lines: [{ id: lineId, quantity: 3 }] })).status).toBe(422);
+    expect(net('acc-rev')).toBe(0);
+    expect(net('acc-ar')).toBe(0);
+    expect(net('acc-cogs')).toBe(0);
+    expect(item().onHandQty).toBe('10.0000');
+  });
+
+  it('sent → draft is refused; unknown and paid targets are refused', async () => {
+    const { id } = await make();
+    expect((await patch(id, { status: 'sent' })).status).toBe(200);
+    expect((await patch(id, { status: 'draft' })).status).toBe(422);
+    expect((await patch(id, { status: 'paid' })).status).toBe(422);
+    expect((await patch(id, { status: 'bogus' })).status).toBe(400);
+  });
+
+  it('PATCH {status:"void"} goes through the real void path: revenue reversed AND stock returned', async () => {
+    const { id } = await make(3);
+    expect(net('acc-cogs')).toBe(1500);
+    const r = await patch(id, { status: 'void' });
+    expect(r.status).toBe(200);
+    expect(r.body.data.status).toBe('void');
+    expect(net('acc-cogs')).toBe(0);
+    expect(net('acc-inv')).toBe(5000);
+    expect(net('acc-rev')).toBe(0);
+    expect(item().onHandQty).toBe('10.0000');
+  });
+
+  it('a line edit into a closed period is refused with nothing written', async () => {
+    const { id, lineId } = await make();
+    const before = memDb.table('abJournalEntry').rows.length;
+    memDb.table('abFiscalPeriod').rows.push({ id: 'fp', tenantId: 't1', year: 2026, month: 11, status: 'closed' });
+    const r = await patch(id, { lines: [{ id: lineId, quantity: 5 }] });
+    expect(r.status).toBe(422);
+    expect(memDb.table('abJournalEntry').rows.length).toBe(before);
+    expect(net('acc-rev')).toBe(-3000);
+  });
+
+  it('a revision-key conflict (concurrent edit) is retried, not a 500', async () => {
+    const { id, lineId } = await make();
+    // Another edit already took revision 1, but this request's count read was stale.
+    memDb.table('abJournalEntry').rows.push({ id: 'je-race', tenantId: 't1', date: new Date('2026-11-10'), sourceType: 'invoice_edit_reverse', sourceId: `${id}:1` });
+    const t = memDb.table('abJournalEntry') as unknown as { count: (a: unknown) => Promise<number> };
+    const real = t.count;
+    let first = true;
+    t.count = async (a) => (first ? ((first = false), 0) : real(a));
+    const r = await patch(id, { lines: [{ id: lineId, quantity: 4 }] });
+    t.count = real;
+    expect(r.status).toBe(200);
+    expect(net('acc-rev')).toBe(-6000);
+    expect(memDb.table('abJournalEntry').rows.some((e) => e.sourceType === 'invoice_edit' && e.sourceId === `${id}:2`)).toBe(true);
+  });
+
+  it('both edit entries are dated the invoice issue date; a GST+PST invoice keeps both rates', async () => {
+    memDb.table('abAccount').rows.push(
+      { id: 'acc-gst', tenantId: 't1', code: '2100', name: 'GST', accountType: 'liability', isActive: true },
+      { id: 'acc-pst', tenantId: 't1', code: '2200', name: 'PST', accountType: 'liability', isActive: true },
+    );
+    const { computeInvoiceTax } = await import('@/lib/agentbook-invoice-tax');
+    vi.mocked(computeInvoiceTax).mockResolvedValueOnce({ taxRate: 0.12, taxCents: 360, components: [
+      { type: 'GST', rate: 0.05, amountCents: 150, accountCode: '2100' },
+      { type: 'PST', rate: 0.07, amountCents: 210, accountCode: '2200' },
+    ] } as never);
+    const { id, lineId } = await make();
+    expect(net('acc-gst')).toBe(-150);
+    // Should the edit re-derive tax from the tenant default, this would return 0 tax.
+    const r = await patch(id, { lines: [{ id: lineId, quantity: 4 }] });
+    expect(r.status).toBe(200);
+    expect(net('acc-gst')).toBe(-300);
+    expect(net('acc-pst')).toBe(-420);
+    expect(net('acc-ar')).toBe(6720);
+    expect(r.body.data.taxCents).toBe(720);
+    const edits = memDb.table('abJournalEntry').rows.filter((e) => String(e.sourceType).startsWith('invoice_edit'));
+    expect(edits).toHaveLength(2);
+    for (const e of edits) expect(new Date(e.date as string).toISOString().slice(0, 10)).toBe('2026-11-10');
+  });
+
+  it('turning tracking off still reverses the old COGS on a later qty edit', async () => {
+    const { id, lineId } = await make(2);
+    memDb.table('abTenantConfig').rows[0].trackInventory = false;
+    await patch(id, { lines: [{ id: lineId, quantity: 5 }] });
+    expect(net('acc-cogs')).toBe(0);
+    expect(item().onHandQty).toBe('10.0000');
   });
 });
 

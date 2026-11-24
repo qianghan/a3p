@@ -247,8 +247,11 @@ async function trueUpAfterPurchase(tx: InventoryDb, tenantId: string, itemId: st
  * sub-ledger drifted from 1500 (found by the PR 5B journal property test).
  */
 async function purchaseGenerations(tx: InventoryDb, tenantId: string, billLineId: string) {
-  const own = (m: Row) => m.sourceId === billLineId || String(m.sourceId).startsWith(`${billLineId}:`);
-  const all: Row[] = ((await tx.abStockMovement.findMany({ where: { tenantId } })) || []).filter(own);
+  const sourceType = { in: ['bill_line', 'bill_line_void'] };
+  const all: Row[] = [
+    ...((await tx.abStockMovement.findMany({ where: { tenantId, sourceType, sourceId: billLineId } })) || []),
+    ...((await tx.abStockMovement.findMany({ where: { tenantId, sourceType, sourceId: { startsWith: `${billLineId}:` } } })) || []),
+  ];
   const byGen = (a: Row, b: Row) => genOf(a.sourceId) - genOf(b.sourceId);
   const genOf = (sid: string) => (sid.includes(':') ? Number(sid.slice(sid.lastIndexOf(':') + 1)) : 0);
   return {
@@ -434,11 +437,15 @@ export async function relieveStock(tx: InventoryDb, tenantId: string, input: { i
 /** An invoice line as the sale hooks need it (quantity is the Float column). */
 export interface SaleLine { id: string; itemId?: string | null; quantity: unknown }
 
+const SALE_FAMILY = ['stock_sale', 'stock_sale_edit_reverse', 'stock_sale_void'];
+
 /** Sale-family movements for one invoice line (original, edit reposts, edit reversals, void). */
 async function lineSaleMovements(tx: InventoryDb, tenantId: string, lineId: string): Promise<Row[]> {
-  const all: Row[] = (await tx.abStockMovement.findMany({ where: { tenantId } })) || [];
-  const fam = new Set(['stock_sale', 'stock_sale_edit_reverse', 'stock_sale_void']);
-  return all.filter((m) => fam.has(m.sourceType) && (m.sourceId === lineId || String(m.sourceId).startsWith(`${lineId}:`)));
+  const sourceType = { in: SALE_FAMILY };
+  return [
+    ...((await tx.abStockMovement.findMany({ where: { tenantId, sourceType, sourceId: lineId } })) || []),
+    ...((await tx.abStockMovement.findMany({ where: { tenantId, sourceType, sourceId: { startsWith: `${lineId}:` } } })) || []),
+  ];
 }
 
 /** Put a line's net sold stock back at exactly the value it took out: DR 1500 | CR cogs. */
@@ -499,9 +506,11 @@ export async function voidInvoiceCogs(tx: InventoryDb, tenantId: string, input: 
  * new quantity (`stock_sale` / line:rev).
  */
 export async function repostInvoiceLineCogs(tx: InventoryDb, tenantId: string, input: { invoiceNumber: string; date: Date; line: SaleLine; rev: number }): Promise<{ valueCents: number; negative: boolean } | null> {
-  if (!input.line.itemId || !(await inventoryEnabled(tx, tenantId))) return null;
+  if (!input.line.itemId) return null;
   const sid = `${input.line.id}:${input.rev}`;
+  // Reversal never depends on the flag (as void): what went out comes back.
   await returnLineStock(tx, tenantId, input.line.id, { sourceType: 'stock_sale_edit_reverse', sourceId: sid }, input.date, `Reverse COGS (edit): Invoice ${input.invoiceNumber}`);
+  if (!(await inventoryEnabled(tx, tenantId))) return null;
   const r = await relieveStock(tx, tenantId, {
     itemId: input.line.itemId, qty: input.line.quantity, date: input.date, sourceType: 'stock_sale', sourceId: sid,
     memo: `Cost of goods sold: Invoice ${input.invoiceNumber}`,
@@ -520,13 +529,12 @@ export async function assertItemsOwned(db: InventoryDb, tenantId: string, itemId
  * here and stay visible on the P&L's COGS account.
  */
 export async function cogsByPeriod(db: InventoryDb, tenantId: string, input: { from: Date; to: Date; granularity: 'month' | 'quarter' }) {
-  const all: Row[] = (await db.abStockMovement.findMany({ where: { tenantId } })) || [];
-  const fam = new Set(['stock_sale', 'stock_sale_edit_reverse', 'stock_sale_void']);
+  const all: Row[] = (await db.abStockMovement.findMany({
+    where: { tenantId, sourceType: { in: SALE_FAMILY }, date: { gte: input.from, lt: input.to } },
+  })) || [];
   const buckets = new Map<string, number>();
   for (const m of all) {
-    if (!fam.has(m.sourceType)) continue;
     const d = new Date(m.date);
-    if (d < input.from || d >= input.to) continue;
     const y = d.getUTCFullYear();
     const key = input.granularity === 'quarter' ? `${y}-Q${Math.floor(d.getUTCMonth() / 3) + 1}` : `${y}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
     buckets.set(key, (buckets.get(key) ?? 0) - m.valueCents);
