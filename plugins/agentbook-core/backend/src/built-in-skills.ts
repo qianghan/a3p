@@ -354,6 +354,8 @@ CREATE_INVOICE_TRIGGER_PATTERN],
       // Pronouns and judgements are not vendor names.
       '^(?:this|that|it|there|here|everything|nothing|which|what|who|why|how|when|where)\\b',
       '\\b(?:is|was)\\s+(?:fine|ok|okay|right|wrong|correct|good|bad|done|ready|personal|business)\\b',
+      // PR 3d review I3: "my rent is due friday" is a payable, not an alias.
+      '\\b(?:is|are)\\s+(?:due|overdue|paid|owed)\\b',
     ],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },

@@ -11,9 +11,9 @@
 
 /** "add a bill from Hydro $84 due Dec 15", "pay later", "facture fournisseur", "记录账单". */
 export const RECORD_BILL_PATTERN =
-  "\\b(record|add|enter|log|save|create|new)\\b.{0,25}\\bbills?\\b|\\bbill from\\b|\\bpay later\\b|\\bvendor bill\\b|\\b(i|we) owe\\b.{0,40}\\$\\s?\\d|" +
-  "\\b(ajoute[rz]?|enregistre[rz]?|saisi[rs]?|cr[ée]e[rz]?)(?![a-z]).{0,25}\\bfactures? (de |d['’])?(fournisseur|[àa] payer)|\\bfactures? (de |d['’])?fournisseur\\b.{0,60}\\d|\\bpayer plus tard\\b|" +
-  "(记录|添加|录入|新增|记一笔).{0,14}(账单|应付)|稍后(付款|支付)";
+  "\\b(record|add|enter|log|save|create|new)\\b.{0,25}\\bbills?\\b|\\bbill from\\b|\\bpay later\\b|\\bvendor bill\\b|\\b(i|we) owe\\b.{0,40}\\d|" +
+  "\\b(ajoute[rz]?|enregistre[rz]?|saisi[rs]?|cr[ée]e[rz]?)(?![a-z]).{0,25}\\bfactures? (de |d['’])?(fournisseur|[àa] payer)|\\bfactures? (de |d['’])?fournisseur\\b.{0,60}\\d|\\bpayer plus tard\\b|\\bje dois\\b.{0,40}\\d|" +
+  "(记录|添加|录入|新增|记一笔).{0,14}(账单|应付)|稍后(付款|支付)|我欠[^0-9多谁哪]{1,10}\\d";
 
 /** "pay the Hydro bill", "paid the rent bill $1,200", "mark the Telus bill paid". */
 export const PAY_BILL_PATTERN =
@@ -23,9 +23,10 @@ export const PAY_BILL_PATTERN =
 
 /** "what bills are due", "accounts payable", "who do I owe", "AP aging". */
 export const QUERY_PAYABLES_PATTERN =
-  "\\bbills?\\b.{0,30}\\bdue\\b|\\boverdue bills?\\b|\\b(open|unpaid|upcoming|outstanding) bills?\\b|\\baccounts payable\\b|\\bpayables?\\b|\\bap aging\\b|\\bwho do (i|we) owe\\b|\\bwhat do (i|we) owe\\b.{0,30}\\b(vendors?|suppliers?|bills?)\\b|\\b(do|how much do) (i|we) owe\\b.{0,30}\\b(vendors?|suppliers?|bills?)\\b|" +
-  "\\bfactures? ([àa] payer|fournisseurs?|impay[ée]es|en retard|[àa] [ée]ch[ée]ance)\\b|\\bcomptes fournisseurs\\b|\\bcomptes cr[ée]diteurs\\b|\\b(qui|combien) (est-ce que )?je dois\\b.{0,30}\\bfournisseurs?\\b|" +
-  "应付账款|应付款|待付账单|未付账单|账单.{0,8}(到期|逾期)|逾期账单|欠供应商";
+  // Review I3: the old manage-bills phrasings ("my rent is due friday", "what do I owe?").
+  "\\brent\\b.{0,20}\\bdue\\b|^\\s*(what|how much) do (i|we) owe\\b(?!.{0,40}\\d)|\\bbills?\\b.{0,30}\\bdue\\b|\\boverdue bills?\\b|\\b(open|unpaid|upcoming|outstanding) bills?\\b|\\baccounts payable\\b|\\bpayables?\\b|\\bap aging\\b|\\bwho do (i|we) owe\\b|\\bwhat do (i|we) owe\\b.{0,30}\\b(vendors?|suppliers?|bills?)\\b|\\b(do|how much do) (i|we) owe\\b.{0,30}\\b(vendors?|suppliers?|bills?)\\b|" +
+  "\\bloyer\\b.{0,20}\\bd[ûu](?![a-z])|\\bcombien (est-ce que )?je dois\\b(?!.{0,40}\\d)|qu['’]est-ce que je dois(\\s*\\?|\\s+(ce|cette|aux?|à)\\b)|\\bfactures? ([àa] payer|fournisseurs?|impay[ée]es|en retard|[àa] [ée]ch[ée]ance)\\b|\\bcomptes fournisseurs\\b|\\bcomptes cr[ée]diteurs\\b|\\b(qui|combien) (est-ce que )?je dois\\b.{0,30}\\bfournisseurs?\\b|" +
+  "房租.{0,8}(到期|该交|要交)|我欠(多少|谁|哪些)|应付账款|应付款|待付账单|未付账单|账单.{0,8}(到期|逾期)|逾期账单|欠供应商";
 
 /** Not AP: taxes owed to a revenue authority, customer invoices, a client paying us. */
 export const PAYABLES_EXCLUDE = [
@@ -99,6 +100,9 @@ export function parseBillVendor(text: string): string | null {
     /\bfactures?\s+(?:de\s+)?fournisseur\s+(?:de\s+|d['’])\s*([^\n]+)/i,
     /\bfactures?\s+(?:à|a)\s+payer\s+(?:de\s+|d['’])\s*([^\n]+)/i,
     /\bfactures?\s+(?:de|d['’])\s*([A-Z][^\n]+)/,
+    /\bowe\s+(?:the\s+|my\s+|our\s+)?([^\d$\n]+?)\s+\$?\d/i,
+    /\bje dois\s+[\d\s.,]+\s*\$?\s*(?:à|au|aux)\s+(?:la\s+|le\s+|l['’]|mon\s+|ma\s+)?([^\d\n]+)/i,
+    /我欠\s*([^\d\s，,。]+?)\s*\d/,
     /\bowe\s+([A-Z][^\n]+)/,
     /来自\s*([^\s，,。的]+)/,
     /账单\s+([A-Za-z][\w&'’ -]{0,30}?)\s+\d/,
@@ -124,7 +128,15 @@ export function parseBillAmount(text: string, parse: (t: string) => number | nul
   const a = parse(text);
   if (a) return a;
   const m = text.match(/(\d{1,3}(?:[ \u00a0\u202f]\d{3})*|\d+)(?:,(\d{1,2}))?\s*\$/);
-  if (!m) return null;
+  if (!m) {
+    // Review I3: "I owe the landlord 1200" / "我欠房东1200元" — the number right
+    // after an owe-phrase is the amount even without a currency sign.
+    const o = text.match(/\b(?:owe|dois)\b\D{0,40}?(\d+)(?:[.,](\d{1,2}))?(?!\d)|欠\D{0,10}?(\d+)(?:\.(\d{1,2}))?/i);
+    if (!o) return null;
+    const whole = Number(o[1] ?? o[3]);
+    const frac = o[2] ?? o[4];
+    return whole * 100 + (frac ? Number(frac.padEnd(2, '0')) : 0) || null;
+  }
   const whole = Number(m[1].replace(/[ \u00a0\u202f]/g, ''));
   const cents = m[2] ? Number(m[2].padEnd(2, '0')) : 0;
   return whole * 100 + cents || null;

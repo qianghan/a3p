@@ -4744,11 +4744,18 @@ async function _executeClassificationCore(
         }
         const r = await fetch(`${expenseBase}/api/v1/agentbook-expense/bills/${encodeURIComponent(bill.id)}?action=pay`, {
           method: 'POST', headers: H,
-          body: JSON.stringify({ ...(amountCents ? { amountCents } : {}), idempotencyKey: keyOf(`pay:${bill.id}`) }),
+          // Review M3: per request — the same sentence later in the day is a
+          // second real payment, not a replay. (Channel redelivery is deduped
+          // upstream by the adapters; the route's overpayment guard caps it.)
+          body: JSON.stringify({ ...(amountCents ? { amountCents } : {}), idempotencyKey: `chat-pay:${bill.id}:${crypto.randomUUID()}` }),
         });
         const j = await r.json() as { success?: boolean; data?: any; payment?: any; code?: string };
         if (!r.ok || !j.success) {
-          return await reply(j.code === 'period_closed' ? t('skill.bill_period_closed') : t('skill.bills_load_failed'), null, 0);
+          const why = j.code === 'period_closed' ? t('skill.bill_period_closed')
+            : j.code === 'payment_voided' ? t('skill.bill_payment_voided')
+              : j.code === 'overpayment' ? t('skill.bill_overpay', { vendor: bill.vendorName, remaining: fmt(owing) })
+                : t('skill.bills_load_failed');
+          return await reply(why, null, 0);
         }
         const paid = j.payment?.amountCents ?? (amountCents || owing);
         const left = Math.max(0, j.data.amountCents - (j.data.paidCents ?? 0));

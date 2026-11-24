@@ -63,6 +63,21 @@ const CASES: Array<[string, string]> = [
   ['我的应付账款是多少？', 'query-payables'],
   ['哪些账单快到期了？', 'query-payables'],
   ['有逾期账单吗？', 'query-payables'],
+  // Review I3 — the old manage-bills phrasings must still land deterministically.
+  ['my rent is due friday', 'query-payables'],
+  ['rent due on the 1st', 'query-payables'],
+  ['what do I owe?', 'query-payables'],
+  ['what do I owe this month', 'query-payables'],
+  ['how much do I owe', 'query-payables'],
+  ['Mon loyer est dû vendredi', 'query-payables'],
+  ['Combien je dois ?', 'query-payables'],
+  ['Qu’est-ce que je dois ce mois-ci ?', 'query-payables'],
+  ['房租周五到期', 'query-payables'],
+  ['我欠多少钱？', 'query-payables'],
+  ['I owe the landlord 1200', 'record-bill'],
+  ['I owe Bob 500 for the logo', 'record-bill'],
+  ['Je dois 1200 $ au propriétaire', 'record-bill'],
+  ['我欠房东1200元', 'record-bill'],
 ];
 
 /** Must NOT become a bill skill. */
@@ -72,6 +87,8 @@ const NOT_BILLS: Array<[string, string | null]> = [
   ['Acme paid the invoice', null],
   ['how much will I owe in taxes this quarter?', null],
   ['Bill Acme $500 for consulting', null],
+  ['who owes me money?', 'aging-report'],
+  ['how much will I owe in taxes this quarter?', null],
 ];
 
 for (const [label, skills] of [['code order', codeOrder], ['db order', dbOrder], ['prod unseeded', unseededOrder]] as const) {

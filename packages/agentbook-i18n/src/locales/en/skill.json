@@ -167,5 +167,6 @@
   "bill_paid": "Paid **{vendor}** {amount} — the bill is now paid in full.",
   "bills_overdue_suffix_one": "({count} overdue)",
   "bills_overdue_suffix_other": "({count} overdue)",
-  "payables_aging": "Aging — current {current} · 1–30 days {d1_30} · 31–60 days {d31_60} · 60+ days {d60_plus}"
+  "payables_aging": "Aging — current {current} · 1–30 days {d1_30} · 31–60 days {d31_60} · 60+ days {d60_plus}",
+  "bill_payment_voided": "That payment was voided, so it wasn’t recorded again. Say the payment again to record a new one."
 }

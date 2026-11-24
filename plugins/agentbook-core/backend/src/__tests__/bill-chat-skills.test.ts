@@ -74,6 +74,16 @@ describe('record-bill', () => {
     expect(calls).toHaveLength(0);
     expect(r.responseData.message).toMatch(/vendor and the amount/);
   });
+  it('review I3: "I owe the landlord 1200" records a bill to the landlord for 1200 (no $ needed)', async () => {
+    routes['POST http://localhost:4051/api/v1/agentbook-expense/bills'] = (c) => ({ success: true, data: { id: 'n1', ...c.body } });
+    await executeClassification(cls('record-bill'), 'I owe the landlord 1200', 't1', 'web');
+    expect(calls[0].body).toMatchObject({ vendorName: 'landlord', amountCents: 120000 });
+  });
+  it('review I3: "我欠房东1200元" records a bill to 房东', async () => {
+    routes['POST http://localhost:4051/api/v1/agentbook-expense/bills'] = (c) => ({ success: true, data: { id: 'n1', ...c.body } });
+    await executeClassification(cls('record-bill', {}, { currency: 'CNY', locale: 'zh-CN' }), '我欠房东1200元', 't1', 'web');
+    expect(calls[0].body).toMatchObject({ vendorName: '房东', amountCents: 120000 });
+  });
   it('manage-bills create delegates to the route (no direct abBill.create)', async () => {
     routes['POST http://localhost:4051/api/v1/agentbook-expense/bills'] = (c) => ({ success: true, data: { id: 'n1', ...c.body } });
     const r = await executeClassification(cls('manage-bills', { action: 'create', vendorName: 'Rent Co', amountCents: 80000, dueDate: '2026-12-01' }), 'rent bill', 't1', 'web');
@@ -107,6 +117,21 @@ describe('pay-bill', () => {
     const r = await executeClassification(cls('pay-bill'), 'Paid $100 on the Staples bill', 't1', 'web');
     expect(calls.find((c) => c.method === 'POST')!.body.amountCents).toBe(10000);
     expect(r.responseData.message).toBe('Recorded a $100 payment to **Staples**; $100 is still owing.');
+  });
+  it('review M3: the same pay sentence twice is two payments (different keys), not a replay', async () => {
+    routes['GET http://localhost:4051/api/v1/agentbook-expense/bills?status=all'] = list([STAPLES]);
+    routes['POST http://localhost:4051/api/v1/agentbook-expense/bills/b2?action=pay'] = (c) => ({ success: true, data: { ...STAPLES, paidCents: 3000 + c.body.amountCents, status: 'partial' }, payment: { id: 'p', amountCents: c.body.amountCents } });
+    await executeClassification(cls('pay-bill'), 'Paid $50 on the Staples bill', 't1', 'web');
+    await executeClassification(cls('pay-bill'), 'Paid $50 on the Staples bill', 't1', 'web');
+    const keys = calls.filter((c) => c.method === 'POST').map((c) => c.body.idempotencyKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+  it('review M3: a 409 payment_voided gets its own message, not "couldn’t load your bills"', async () => {
+    routes['GET http://localhost:4051/api/v1/agentbook-expense/bills?status=all'] = list([STAPLES]);
+    routes['POST http://localhost:4051/api/v1/agentbook-expense/bills/b2?action=pay'] = () => ({ success: false, code: 'payment_voided' });
+    const r = await executeClassification(cls('pay-bill'), 'Paid $50 on the Staples bill', 't1', 'web');
+    expect(r.responseData.message).toMatch(/voided/);
   });
   it('overpayment is refused before any write', async () => {
     routes['GET http://localhost:4051/api/v1/agentbook-expense/bills?status=all'] = list([STAPLES]);
