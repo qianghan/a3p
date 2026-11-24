@@ -65,6 +65,18 @@ describe('query-cogs', () => {
     expect(where.sourceType.in).toEqual(['stock_sale', 'stock_sale_void', 'stock_sale_edit_reverse']);
   });
 
+  it('a sale fully netted by its void reads $0, never -$0', async () => {
+    mockCfg.mockResolvedValue({ trackInventory: true, currency: 'USD' });
+    mockMoves.mockResolvedValue([
+      { sourceType: 'stock_sale', valueCents: -1250 },
+      { sourceType: 'stock_sale_void', valueCents: 1250 },
+    ]);
+    const r = await executeClassification(cls(), "what's my COGS this quarter?", 't1', 'api');
+    expect(Object.is(r.skillResponse.data.cogsCents, -0)).toBe(false);
+    expect(r.responseData.message).toContain('**$0**');
+    expect(r.responseData.message).not.toContain('-$0');
+  });
+
   it('replies in fr-CA through the catalog', async () => {
     mockCfg.mockResolvedValue({ trackInventory: true, currency: 'CAD' });
     mockMoves.mockResolvedValue([]);
