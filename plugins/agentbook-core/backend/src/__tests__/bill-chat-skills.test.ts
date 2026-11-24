@@ -214,6 +214,16 @@ describe('parsers', () => {
     expect(parseBillAmount('facture de Bell 84,50 $', none)).toBe(8450);
     expect(parseBillAmount('facture de Bell 1 200 $', none)).toBe(120000);
   });
+  it('chooseBillToPay: a full vendor name beats a prefix; the first-word fallback is whole-word only', () => {
+    const mk = (id: string, vendorName: string) => ({ id, vendorName, amountCents: 100, paidCents: 0, dueDate: '2026-12-31', status: 'open' });
+    // prod e2e: "Pay the E2EBILMA…CHAT bill" also offered three "E2E F6 Vendor …" bills.
+    const tagged = mk('t', 'E2EBILMAZZ9PROBECHAT');
+    const others = [mk('o1', 'E2E F6 Vendor 1782848970490'), mk('o2', 'E2E F6 Vendor 1783785029667')];
+    expect(chooseBillToPay('Pay the E2EBILMAZZ9PROBECHAT bill', [tagged, ...others]).map((b) => b.id)).toEqual(['t']);
+    expect(chooseBillToPay('Pay the Hydro One bill', [mk('h1', 'Hydro One'), mk('h2', 'Hydro Ottawa')]).map((b) => b.id)).toEqual(['h1']);
+    expect(chooseBillToPay('pay the hydro bill', [mk('h1', 'Hydro One'), mk('h2', 'Hydro Ottawa')]).map((b) => b.id)).toEqual(['h1', 'h2']);
+  });
+
   it('chooseBillToPay matches by vendor, never a paid bill', () => {
     expect(chooseBillToPay('pay the hydro bill', [HYDRO, STAPLES, PAID]).map((b) => b.id)).toEqual(['b1']);
     expect(chooseBillToPay('pay the telus bill', [HYDRO, PAID])).toEqual([]);
