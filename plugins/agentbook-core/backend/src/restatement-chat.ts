@@ -15,6 +15,9 @@ import { taxYearFromText, currentTaxYear, taxYearBounds } from '@agentbook/juris
 
 export type RestatementMode = 'preview' | 'apply';
 
+/** Batches one chat apply follows (each is ≤100 rows on the server). */
+export const MAX_CHAT_APPLY_CALLS = 5;
+
 export interface RestatementTenant {
   jurisdiction?: string | null;
   timezone?: string | null;
@@ -32,7 +35,7 @@ interface PreviewData {
   year: number; from: string; to: string; applicable: boolean;
   counts: { eligible: number; skippedClosed: number };
   recoverableTaxCents: number; netProfitDeltaCents: number;
-  restated?: unknown[]; failed?: unknown[]; remaining?: number;
+  restated?: unknown[]; failed?: unknown[]; remaining?: number; cursor?: string;
 }
 
 export async function runRestatementSkill(opts: {
@@ -48,10 +51,30 @@ export async function runRestatementSkill(opts: {
   const f = opts.fetchImpl ?? fetch;
   const { year } = restatementChatYear(opts.text, opts.tenant);
   const url = `${opts.baseUrl}/api/v1/agentbook-tax/restatement`;
-  const res = opts.mode === 'apply'
+  type Body = { success?: boolean; data?: PreviewData; error?: { code?: string } } | null;
+  let res = opts.mode === 'apply'
     ? await f(url, { method: 'POST', headers: { ...opts.headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ year }) })
     : await f(`${url}?year=${year}`, { headers: opts.headers });
-  const body = (await res.json().catch(() => null)) as { success?: boolean; data?: PreviewData; error?: { code?: string } } | null;
+  let body = (await res.json().catch(() => null)) as Body;
+  // Apply: follow the cursor for a few bounded batches (N-2), summing what was committed.
+  if (opts.mode === 'apply' && res.ok && body?.success && body.data) {
+    const acc = body.data;
+    acc.restated = [...(acc.restated ?? [])];
+    acc.failed = [...(acc.failed ?? [])];
+    for (let i = 1; i < MAX_CHAT_APPLY_CALLS && (acc.remaining ?? 0) > 0 && acc.cursor; i++) {
+      res = await f(url, { method: 'POST', headers: { ...opts.headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ year, cursor: acc.cursor }) });
+      const next = (await res.json().catch(() => null)) as Body;
+      if (!res.ok || !next?.success || !next.data) break; // report what is already committed
+      acc.restated.push(...(next.data.restated ?? []));
+      acc.failed.push(...(next.data.failed ?? []));
+      acc.recoverableTaxCents += next.data.recoverableTaxCents;
+      acc.remaining = next.data.remaining;
+      acc.cursor = next.data.cursor;
+      acc.counts = next.data.counts;
+    }
+    res = { ok: true, status: 200 } as Response;
+    body = { success: true, data: acc };
+  }
 
   if (res.status === 422 && (body?.error?.code === 'not_registered' || body?.error?.code === 'unsupported_jurisdiction')) {
     return { message: opts.t('skill.restatement_not_applicable'), data: body?.data ?? null };

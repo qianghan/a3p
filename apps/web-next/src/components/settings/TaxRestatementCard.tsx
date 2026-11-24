@@ -13,7 +13,7 @@ import { formatCurrencyCents } from '@/lib/jurisdiction-currency';
 interface Row { expenseId: string; date: string; description: string; amountCents: number; recoverableTaxCents: number; taxCode: string | null }
 interface Preview {
   year: number; from: string; to: string; applicable: boolean;
-  eligible: Row[]; skipped: Array<Row & { reason: string }>; restated?: Row[]; failed?: Row[]; remaining?: number;
+  eligible: Row[]; skipped: Array<Row & { reason: string }>; restated?: Row[]; failed?: Row[]; remaining?: number; cursor?: string;
   counts: { eligible: number; skippedClosed: number; skippedOther: number; alreadyTyped: number; noTaxAmount: number };
   recoverableTaxCents: number; expenseDeltaCents: number; netProfitDeltaCents: number;
 }
@@ -58,17 +58,20 @@ export function TaxRestatementCard({ jurisdiction, currency }: { jurisdiction: s
     setBusy(true); setError(false);
     const totals: ApplyTotals = { restated: 0, recoverableTaxCents: 0, failed: 0, skippedClosed: 0 };
     try {
+      let cursor: string | undefined;
       for (let i = 0; i < MAX_APPLY_CALLS; i++) {
-        const r = await fetch(URL_BASE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ year }) });
+        const r = await fetch(URL_BASE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cursor ? { year, cursor } : { year }) });
         const body = await r.json();
         if (!r.ok || !body?.success || !body.data?.counts) throw new Error(String(r.status));
         const d = body.data as Preview;
         const n = d.restated?.length ?? 0;
         totals.restated += n;
         totals.recoverableTaxCents += d.recoverableTaxCents;
-        totals.failed = d.failed?.length ?? 0;
+        totals.failed += d.failed?.length ?? 0;
         totals.skippedClosed = d.counts.skippedClosed;
-        if (!(d.remaining && d.remaining > 0) || n === 0) break;
+        // N-2: continue after the last row attempted, so failing rows cannot stall the rest.
+        if (!(d.remaining && d.remaining > 0) || !d.cursor) break;
+        cursor = d.cursor;
       }
       setConfirming(false);
     } catch {

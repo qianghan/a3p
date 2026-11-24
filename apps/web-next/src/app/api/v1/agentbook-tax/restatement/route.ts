@@ -61,7 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const resolved = await safeResolveAgentbookTenant(request);
     if ('response' in resolved) return resolved.response;
     const { tenantId } = resolved;
-    const body = (await request.json().catch(() => ({}))) as { year?: unknown; expenseIds?: unknown };
+    const body = (await request.json().catch(() => ({}))) as { year?: unknown; expenseIds?: unknown; cursor?: unknown };
     const year = await resolveYear(tenantId, body?.year);
     if (year instanceof NextResponse) return year;
     // Optional subset: restate only these expenses (e.g. one row, or a test
@@ -77,7 +77,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         if (!own) return NextResponse.json({ success: false, error: { code: 'not_found', message: 'Expense not found' } }, { status: 404 });
       }
     }
-    const result = await applyTaxRestatement(tenantId, year, undefined, { expenseIds });
+    // N-2: continue after the last row a previous call attempted.
+    const cursor = typeof body?.cursor === 'string' && body.cursor.length > 0 && body.cursor.length <= 200 ? body.cursor : undefined;
+    const result = await applyTaxRestatement(tenantId, year, undefined, { expenseIds, cursor });
     if (!result.applicable) {
       return NextResponse.json(
         { success: false, error: { code: result.notApplicableReason, message: 'Restatement applies only to GST/HST-registered Australian or Canadian businesses.' }, data: result },

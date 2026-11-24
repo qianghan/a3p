@@ -96,6 +96,14 @@ describe('GET/POST /agentbook-tax/restatement', () => {
     }
   });
 
+  it('N-2: POST passes the cursor through: rows at or before it are not attempted', async () => {
+    seedLegacy('a');
+    seedLegacy('b');
+    const r = await (await post({ year: 2026, cursor: '2026-03-10|a' })).json();
+    expect(r.data.restated.map((x: any) => x.expenseId)).toEqual(['b']);
+    expect(h.fake.state.expenses.find((e: any) => e.id === 'a').taxCode).toBeNull();
+  });
+
   it('rejects a malformed year with 400', async () => {
     expect((await get('?year=abc')).status).toBe(400);
     expect((await post({ year: 1990 })).status).toBe(400);

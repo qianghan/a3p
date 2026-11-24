@@ -64,14 +64,16 @@ describe('TaxRestatementCard', () => {
 
   it('one Apply continues bounded batches until nothing remains, and reports failed rows', async () => {
     const posts: number[] = [];
+    const bodies: unknown[] = [];
     let n = 0;
     global.fetch = vi.fn((url: string, init?: RequestInit) => {
       let data: unknown = PREVIEW;
       if (init?.method === 'POST') {
         n++;
         posts.push(n);
+        bodies.push(JSON.parse(String(init.body)));
         data = n === 1
-          ? { ...PREVIEW, restated: [PREVIEW.eligible[0], PREVIEW.eligible[0]], recoverableTaxCents: 2000, failed: [], remaining: 3 }
+          ? { ...PREVIEW, restated: [PREVIEW.eligible[0], PREVIEW.eligible[0]], recoverableTaxCents: 2000, failed: [], remaining: 3, cursor: '2026-03-10|e9' }
           : { ...PREVIEW, restated: [PREVIEW.eligible[0]], recoverableTaxCents: 1000, failed: [PREVIEW.eligible[0]], remaining: 0 };
       }
       return Promise.resolve({ ok: true, status: 200, headers: new Headers(), json: () => Promise.resolve({ success: true, data }) });
@@ -81,6 +83,7 @@ describe('TaxRestatementCard', () => {
     fireEvent.click(screen.getByTestId('restatement-confirm-yes'));
     await waitFor(() => expect(screen.getByTestId('restatement-result').textContent).toContain('Purchases restated: 3. A$30 moved'));
     expect(posts).toEqual([1, 2]);
+    expect(bodies).toEqual([{ year: 2026 }, { year: 2026, cursor: '2026-03-10|e9' }]);
     expect(screen.getByTestId('restatement-failed').textContent).toBe('Could not restate: 1. They were left unchanged; try again.');
   });
 });

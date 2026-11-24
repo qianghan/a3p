@@ -91,6 +91,21 @@ describe('restatement chat skills', () => {
     expect(r.responseData.message).toContain('Done: restated **2** purchases for tax year 2026; **$30** moved from expenses to your GST/HST account.');
   });
 
+  it('N-2: apply follows the cursor across batches and sums what was committed', async () => {
+    const pages = [
+      { ...PREVIEW, recoverableTaxCents: 1000, restated: [{}], failed: [{}, {}], remaining: 5, cursor: 'c1' },
+      { ...PREVIEW, recoverableTaxCents: 2000, restated: [{}, {}], failed: [], remaining: 0 },
+    ];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? 'GET', body: init?.body as string | undefined });
+      return { ok: true, status: 200, json: async () => ({ success: true, data: pages.shift() }) };
+    }));
+    const r = await executeClassification(cls('restatement-apply', { jurisdiction: 'au' }), 'restate my GST for 2026', 't1', 'api');
+    expect(calls.map((c) => JSON.parse(c.body!))).toEqual([{ year: 2026 }, { year: 2026, cursor: 'c1' }]);
+    expect(r.responseData.message).toContain('restated **3** purchases for tax year 2026; **$30** moved');
+    expect(r.responseData.message).toContain('2 could not be restated');
+  });
+
   it('apply for a non-registrant (422) says restatement does not apply', async () => {
     reply = { status: 422, body: { success: false, error: { code: 'not_registered' } } };
     const r = await executeClassification(cls('restatement-apply'), 'restate my GST', 't1', 'api');
