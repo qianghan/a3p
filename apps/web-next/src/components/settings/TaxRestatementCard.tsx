@@ -43,7 +43,7 @@ export function TaxRestatementCard({ jurisdiction, currency }: { jurisdiction: s
     try {
       const r = await fetch(`${URL_BASE}?year=${y}`);
       const body = await r.json();
-      if (!r.ok || !body?.success) throw new Error(String(r.status));
+      if (!r.ok || !body?.success || !body.data?.counts) throw new Error(String(r.status));
       setPreview(body.data as Preview);
     } catch {
       setError(true);
@@ -56,7 +56,7 @@ export function TaxRestatementCard({ jurisdiction, currency }: { jurisdiction: s
     try {
       const r = await fetch(URL_BASE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ year }) });
       const body = await r.json();
-      if (!r.ok || !body?.success) throw new Error(String(r.status));
+      if (!r.ok || !body?.success || !body.data?.counts) throw new Error(String(r.status));
       setResult(body.data as Preview);
       setConfirming(false);
       await load(year);
