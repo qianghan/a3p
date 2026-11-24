@@ -70,6 +70,21 @@ describe('GET/POST /agentbook-tax/restatement', () => {
     expect(h.fake.state.entries.length).toBe(1);
   });
 
+  it('expenseIds restricts apply to those rows; another tenant\'s id is 404 and nothing is written', async () => {
+    seedLegacy('a');
+    seedLegacy('b');
+    seedLegacy('theirs', 't2', 'acct-t2-meals');
+    const foreign = await post({ year: 2026, expenseIds: ['a', 'theirs'] });
+    expect(foreign.status).toBe(404);
+    expect(h.fake.state.entries.length).toBe(3);
+
+    const r = await (await post({ year: 2026, expenseIds: ['a'] })).json();
+    expect(r.data.restated.map((x: any) => x.expenseId)).toEqual(['a']);
+    expect(h.fake.state.expenses.find((e: any) => e.id === 'b').taxCode).toBeNull();
+    expect(h.fake.netByAccount()['acct-gst']).toBe(1000);
+    expect((await post({ year: 2026, expenseIds: [] })).status).toBe(400);
+  });
+
   it('rejects a malformed year with 400', async () => {
     expect((await get('?year=abc')).status).toBe(400);
     expect((await post({ year: 1990 })).status).toBe(400);

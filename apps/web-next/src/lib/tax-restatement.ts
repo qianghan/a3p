@@ -249,7 +249,7 @@ class Skip extends Error {
 }
 
 /**
- * Restate `year`: for each eligible row, in its own transaction, type it
+ * Restate `year` (or only `opts.expenseIds` within it): for each eligible row, in its own transaction, type it
  * (taxCode + recoverableTaxCents; taxAmountCents is unchanged) and repost it
  * through repostExpenseJournalEntry, which writes the amend-reversal of the
  * current entry and the 3-line replacement under `expense_amend*` keys.
@@ -257,8 +257,20 @@ class Skip extends Error {
  * or repeated run a no-op for that row; any repost refusal rolls the row back
  * and lists it as skipped.
  */
-export async function applyTaxRestatement(tenantId: string, year: number, client: Client = db): Promise<RestatementApplyResult> {
+export async function applyTaxRestatement(
+  tenantId: string,
+  year: number,
+  client: Client = db,
+  opts: { expenseIds?: string[] } = {},
+): Promise<RestatementApplyResult> {
   const c = await classify(client, tenantId, year);
+  // Optional subset (the caller has already 404'd ids that are not this
+  // tenant's): only those rows are touched; the rest stay as they are.
+  if (opts.expenseIds) {
+    const only = new Set(opts.expenseIds);
+    c.eligible = c.eligible.filter((x) => only.has(x.row.expenseId));
+    c.skipped = c.skipped.filter((x) => only.has(x.expenseId));
+  }
   const restated: RestatementRow[] = [];
   const skipped: SkippedRestatementRow[] = [...c.skipped];
   let alreadyTyped = c.alreadyTyped;

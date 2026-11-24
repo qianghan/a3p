@@ -2,11 +2,12 @@
  * Opt-in tax restatement of legacy gross expenses (spec §5.1, PR 2c).
  *
  *   GET  /api/v1/agentbook-tax/restatement?year=2026  → preview (read-only)
- *   POST /api/v1/agentbook-tax/restatement { year }   → apply (idempotent)
+ *   POST /api/v1/agentbook-tax/restatement { year, expenseIds? } → apply (idempotent;
+ *        expenseIds restricts it to those rows — another tenant's id is 404)
  *
  * `year` is the tax year: AU names the 1 Jul – 30 Jun income year by its
  * ending year, CA the calendar year. Omitted = the current tax year.
- * Everything is tenant-scoped (no ids are accepted); the work is in
+ * Everything is tenant-scoped; the work is in
  * lib/tax-restatement.ts and writes only through the expense ledger's
  * repost (ledger writer, closed-period gate).
  */
@@ -60,10 +61,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const resolved = await safeResolveAgentbookTenant(request);
     if ('response' in resolved) return resolved.response;
     const { tenantId } = resolved;
-    const body = (await request.json().catch(() => ({}))) as { year?: unknown };
+    const body = (await request.json().catch(() => ({}))) as { year?: unknown; expenseIds?: unknown };
     const year = await resolveYear(tenantId, body?.year);
     if (year instanceof NextResponse) return year;
-    const result = await applyTaxRestatement(tenantId, year);
+    // Optional subset: restate only these expenses (e.g. one row, or a test
+    // fixture). Every id must be this tenant's — anything else is a 404.
+    let expenseIds: string[] | undefined;
+    if (body?.expenseIds !== undefined) {
+      if (!Array.isArray(body.expenseIds) || body.expenseIds.length === 0 || body.expenseIds.length > 500 || !body.expenseIds.every((x) => typeof x === 'string' && x.length > 0)) {
+        return NextResponse.json({ success: false, error: { code: 'invalid_expense_ids', message: 'expenseIds must be a non-empty array of expense ids' } }, { status: 400 });
+      }
+      expenseIds = [...new Set(body.expenseIds as string[])];
+      for (const id of expenseIds) {
+        const own = await db.abExpense.findFirst({ where: { id, tenantId }, select: { id: true } });
+        if (!own) return NextResponse.json({ success: false, error: { code: 'not_found', message: 'Expense not found' } }, { status: 404 });
+      }
+    }
+    const result = await applyTaxRestatement(tenantId, year, undefined, { expenseIds });
     if (!result.applicable) {
       return NextResponse.json(
         { success: false, error: { code: result.notApplicableReason, message: 'Restatement applies only to GST/HST-registered Australian or Canadian businesses.' }, data: result },
