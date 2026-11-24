@@ -14,6 +14,7 @@ import { ChatCTA } from '@naap/plugin-sdk';
 import { formatMoney } from '@agentbook/i18n';
 import { useTenantCurrency } from '../hooks/useTenantCurrency';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { RestatementNote } from '../components/RestatementNote';
 import { useI18n } from '@naap/plugin-sdk';
 
 interface ReportRow {
@@ -237,6 +238,7 @@ export const ReportsPage: React.FC = () => {
             {t('tax_ui.cash_basis_unavailable_open_bills', { count: String(data.cashBasisDisabled.openAtEntryBillCount) })}
           </div>
         )}
+        {data.net_income !== undefined && <RestatementNote />}
         {data.sections?.map((section, i) => (
           <div key={i}>
             <h4 className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--text-secondary)' }}>

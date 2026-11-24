@@ -93,5 +93,7 @@
   "cash_basis_unavailable_open_bills_one": "La comptabilité de caisse n’est pas disponible tant que {count} facture fournisseur est ouverte. Affichage selon la comptabilité d’exercice.",
   "cash_basis_unavailable_open_bills_other": "La comptabilité de caisse n’est pas disponible tant que {count} factures fournisseurs sont ouvertes. Affichage selon la comptabilité d’exercice.",
   "return_sales_by_invoice_date": "Comptabilité de caisse : les achats sont comptés lorsqu’ils sont payés. Les ventes sont déclarées selon la date de facture.",
-  "return_wages_by_pay_date": "W1 et W2 comptent les salaires selon la date de paie (date de fin de période pour les anciens cycles qui n’en ont pas)."
+  "return_wages_by_pay_date": "W1 et W2 comptent les salaires selon la date de paie (date de fin de période pour les anciens cycles qui n’en ont pas).",
+  "restatement_note_one": "{count} achat de l’année d’imposition {year} inclut encore la TPS/TVH dans la dépense. Retraitez-le dans Paramètres › Profil d’entreprise.",
+  "restatement_note_other": "{count} achats de l’année d’imposition {year} incluent encore la TPS/TVH dans la dépense. Retraitez-les dans Paramètres › Profil d’entreprise."
 }

@@ -406,5 +406,22 @@
   "pay_date_on": "Date de paie : {date}",
   "pay_date_is_a_weekend": "La date de paie tombe un week-end — les déclarations obligatoires utilisent cette date.",
   "track_inventory": "Suivre les stocks",
-  "track_inventory_help": "Suivez les stocks que vous achetez et vendez. Les achats d’articles sur les factures fournisseurs vont à l’actif Stocks (1500) plutôt qu’en dépense."
+  "track_inventory_help": "Suivez les stocks que vous achetez et vendez. Les achats d’articles sur les factures fournisseurs vont à l’actif Stocks (1500) plutôt qu’en dépense.",
+  "restate_title": "Retraiter la TPS/TVH des achats antérieurs",
+  "restate_help": "Les achats comptabilisés avant les codes de taxe incluent leur TPS/TVH dans la dépense. Le retraitement transfère la taxe récupérable dans votre compte de TPS/TVH, une année d’imposition à la fois. Les mois clôturés ne sont jamais modifiés.",
+  "restate_tax_year": "Année d’imposition",
+  "restate_year_au": "{start}–{end}",
+  "restate_failed": "Impossible de charger ou d’appliquer le retraitement. Veuillez réessayer.",
+  "restate_nothing": "Rien à retraiter pour cette année d’imposition.",
+  "restate_pnl_delta": "Le retraitement réduit les dépenses et augmente le bénéfice net de {amount}.",
+  "restate_row_recoverable": "{amount} récupérable",
+  "restate_apply": "Retraiter {year}",
+  "restate_confirm_yes": "Oui, retraiter",
+  "restate_summary": "Achats dont la taxe récupérable est encore dans la dépense : {count} ({amount}).",
+  "restate_skipped_closed": "Dans des mois clôturés, laissés tels quels : {count}.",
+  "restate_skipped_other": "À vérifier manuellement (taxe non conforme au code de taxe, ou ventilation) : {count}.",
+  "restate_already_typed": "Ont déjà un code de taxe : {count}.",
+  "restate_confirm": "Retraiter ces achats ({count}) du {from} au {to}? {amount} passe des dépenses à votre compte de TPS/TVH, chacun par une écriture de correction à sa date d’origine.",
+  "restate_done": "Achats retraités : {count}. {amount} transféré dans votre compte de TPS/TVH.",
+  "restate_failed_rows": "Non retraités : {count}. Ils sont restés inchangés; réessayez."
 }

@@ -406,5 +406,22 @@
   "pay_date_on": "Pay date {date}",
   "pay_date_is_a_weekend": "Pay date is a weekend — statutory reports use this date.",
   "track_inventory": "Track inventory",
-  "track_inventory_help": "Count stock you buy and sell. Purchases on bills with an item go to Inventory (1500) instead of an expense."
+  "track_inventory_help": "Count stock you buy and sell. Purchases on bills with an item go to Inventory (1500) instead of an expense.",
+  "restate_title": "Restate GST/HST in older purchases",
+  "restate_help": "Purchases booked before tax codes existed include their GST/HST in the expense. Restating moves the recoverable tax to your GST/HST account, one tax year at a time. Closed months are never changed.",
+  "restate_tax_year": "Tax year",
+  "restate_year_au": "{start}–{end}",
+  "restate_failed": "Couldn’t load or apply the restatement. Please try again.",
+  "restate_nothing": "Nothing to restate for this tax year.",
+  "restate_pnl_delta": "Restating lowers expenses and raises net profit by {amount}.",
+  "restate_row_recoverable": "{amount} recoverable",
+  "restate_apply": "Restate {year}",
+  "restate_confirm_yes": "Yes, restate",
+  "restate_summary": "Purchases with recoverable tax still in expense: {count} ({amount}).",
+  "restate_skipped_closed": "In closed months, left as they are: {count}.",
+  "restate_skipped_other": "Need a manual check (tax doesn’t match the tax code, or split): {count}.",
+  "restate_already_typed": "Already have a tax code: {count}.",
+  "restate_confirm": "Restate these purchases ({count}) for {from} – {to}? {amount} moves from expenses to your GST/HST account, each as a correcting entry on its original date.",
+  "restate_done": "Purchases restated: {count}. {amount} moved to your GST/HST account.",
+  "restate_failed_rows": "Could not restate: {count}. They were left unchanged; try again."
 }

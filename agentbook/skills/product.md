@@ -70,6 +70,7 @@ Phase 11 analysis (100-feature comparison):
 - Inventory (opt-in "Track inventory"): items with stock on hand at weighted-average cost, purchases via bill lines, opening stock, adjustments and shrinkage write-offs (with a reason), low-stock alerts on Home and in chat.
 - Sales from stock: pick an inventory item on an invoice line; COGS posts at invoice creation (5990 US/CA, 5000 AU) and a void puts the stock back; COGS by quarter on the Items page and in chat ("what's my COGS this quarter?").
 - Payroll: employee profiles with encrypted tax ids, pay frequency (bi-weekly / fortnightly), pay-run drafts from chat.
+- Tax restatement (AU/CA GST/HST registrants): older purchases booked gross can be restated one tax year at a time from Settings › Business Profile or chat — preview (count, recoverable tax, P&L change), confirm, apply; closed months are never changed; reports carry a note until the year is restated.
 
 ### Tax & Compliance
 - Real-time tax estimate (US + CA brackets, SE tax, effective rate)

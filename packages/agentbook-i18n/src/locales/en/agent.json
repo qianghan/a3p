@@ -36,5 +36,6 @@
   "pay_run_drafts_review": "Review and process them on the {page} page.",
   "pay_run_drafts_processed": "This pay period has already been processed — open the {page} page to review it.",
   "pay_run_drafts_failed": "I couldn't set up the draft pay runs. Please try again on the {page} page.",
-  "sensitive_id_looks_invalid": "Note: that doesn't look like a valid tax file number, SIN or SSN — and for privacy, tax ids can only be entered on the employee's profile screen, never in chat."
+  "sensitive_id_looks_invalid": "Note: that doesn't look like a valid tax file number, SIN or SSN — and for privacy, tax ids can only be entered on the employee's profile screen, never in chat.",
+  "restatement_confirm": "Restate older purchases for tax year {year} ({from} – {to}): move their recoverable GST/HST out of expenses (closed months are skipped)"
 }

@@ -51,6 +51,9 @@ Bills (`AbBill` + `AbBillLine` + `AbBillPayment`) post through `apps/web-next/sr
 ### Inventory sales and COGS (PR 5B)
 COGS posts when the invoice posts revenue (creation): `POST /agentbook-invoice/invoices` calls `postInvoiceCogs` inside its transaction → per line with `itemId`, `relieveStock` (`stock_sale` / invoice line id, DR cogs | CR 1500). `invoices/:id/void` → `voidInvoiceCogs` (`stock_sale_void`, returns the line's net sold value exactly); `PATCH invoices/:id { lines }` (draft only) re-posts revenue (`invoice_edit_reverse` / `invoice_edit`, key `<invoiceId>:<rev>`) and COGS (`stock_sale_edit_reverse` + `stock_sale` keyed `<lineId>:<rev>`). Bill-line purchases are generation-keyed (`bill_line` / `<lineId>[:n]`) so an at_payment bill re-paid after a voided payment brings stock in again. Report: `GET /agentbook-expense/inventory/cogs`. Chat: `query-cogs`. Invariant (CI, `lib/__tests__/journal-property.test.ts`): across bills, payments, voids, tax, inventory and payroll entries Σdr = Σcr, AP = Σ open at_entry bills, 1500 = Σ item values.
 
+### Tax restatement (PR 2c)
+Opt-in, per tax year (AU 1 Jul – 30 Jun named by its ending year, CA calendar), preview first: `GET/POST /agentbook-tax/restatement` → `lib/tax-restatement.ts`. A legacy gross row (taxCode null, printed tax > 0, plain 2-line entry) of an AU/CA registrant is typed (vendor defaultTaxCode, else the jurisdiction default; engine must agree with the stored tax within 2¢) and re-booked by `repostExpenseJournalEntry` — amend-reversal + 3-line replacement under the existing `expense_amend_reversal` / `expense_amend` keys (no new key family). Closed periods are skipped and listed. Surfaces: Business Profile card (`components/settings/TaxRestatementCard.tsx`), report footnote (`agentbook-tax` `RestatementNote` on the return + P&L), chat `restatement-preview` / `restatement-apply` (confirmBefore).
+
 ## API Endpoints (140 total)
 
 | Plugin | Port | Endpoints | Key Routes |

@@ -93,5 +93,7 @@
   "cash_basis_unavailable_open_bills_one": "Cash basis is unavailable while {count} bill is still open. Showing accrual basis instead.",
   "cash_basis_unavailable_open_bills_other": "Cash basis is unavailable while {count} bills are still open. Showing accrual basis instead.",
   "return_sales_by_invoice_date": "Cash basis: purchases are counted when paid. Sales are reported by invoice date.",
-  "return_wages_by_pay_date": "W1 and W2 count wages by pay date (period end for older pay runs without one)."
+  "return_wages_by_pay_date": "W1 and W2 count wages by pay date (period end for older pay runs without one).",
+  "restatement_note_one": "{count} purchase from tax year {year} still includes GST/HST in expense. Restate it in Settings › Business Profile.",
+  "restatement_note_other": "{count} purchases from tax year {year} still include GST/HST in expense. Restate them in Settings › Business Profile."
 }
