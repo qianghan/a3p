@@ -72,7 +72,11 @@
       "a_vendor": "Un fournisseur",
       "low_stock_item": "Le stock de {item} est bas",
       "low_stock_one": "{count} article a un stock bas",
-      "low_stock_other": "{count} articles ont un stock bas"
+      "low_stock_other": "{count} articles ont un stock bas",
+      "bills_due_many_one": "{count} facture à payer — {amount} encore dus",
+      "bills_due_many_other": "{count} factures à payer — {amount} encore dus",
+      "bills_due_many_overdue_one": "{count} facture à payer, la première est en retard — {amount} encore dus",
+      "bills_due_many_overdue_other": "{count} factures à payer, la première est en retard — {amount} encore dus"
     },
     "action": {
       "logged": "Consigné",
@@ -374,7 +378,13 @@
     "tax_code_ca_gst_pst": "TPS + TVP",
     "tax_code_ca_gst_qst": "TPS + TVQ",
     "tax_code_au_gst": "GST (Australie)",
-    "period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date."
+    "period_closed": "Cette dépense est datée dans une période fermée et ne peut pas être comptabilisée. Rouvrez la période ou changez la date.",
+    "pay_later": "Payer plus tard",
+    "pay_later_hint": "L’enregistrer comme facture à payer d’ici l’échéance — elle apparaît dans Factures à payer, pas comme une dépense payée.",
+    "field_due_date": "Échéance",
+    "bill_saved": "Facture à payer enregistrée",
+    "bill_vendor_required": "Indiquez le fournisseur pour enregistrer une facture à payer.",
+    "bill_due_invalid": "Choisissez une échéance égale ou postérieure à la date de la facture."
   },
   "chat": {
     "title": "Demandez à votre conseiller",

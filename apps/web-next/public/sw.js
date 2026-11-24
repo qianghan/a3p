@@ -233,10 +233,13 @@ async function replayExpenseQueue() {
   const items = await getAll(db, EXPENSE_STORE);
   for (const item of items) {
     try {
-      const res = await fetch('/api/v1/agentbook-expense/expenses', {
+      // PR 3d.2: a Capture "Pay later" bill replays to /bills with its key
+      // (mirrors replayExpenses() in src/lib/offline-queue.ts).
+      const isBill = item.path === '/api/v1/agentbook-expense/bills';
+      const res = await fetch(isBill ? '/api/v1/agentbook-expense/bills' : '/api/v1/agentbook-expense/expenses', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(item.payload),
+        headers: Object.assign({ 'content-type': 'application/json' }, isBill && item.idempotencyKey ? { 'Idempotency-Key': item.idempotencyKey } : {}),
+        body: JSON.stringify(isBill && item.idempotencyKey ? Object.assign({}, item.payload, { idempotencyKey: item.idempotencyKey }) : item.payload),
       });
       // A real rejection (validation error, auth expired) needs the user's
       // attention, not a silent drop — leave it queued either way and let

@@ -66,3 +66,18 @@ describe('POST /bills idempotency (offline replay)', () => {
     expect([r.status, (await r.json()).code, f.state.bills.length]).toEqual([409, 'idempotency_key_conflict', 1]);
   });
 });
+
+describe('POST /bills categoryId (Capture sends the account id)', () => {
+  it('resolves the tenant’s expense account to its code: at_entry debits that account', async () => {
+    flagOn = true;
+    const r = await createBill(req(B, { vendorName: 'Hydro One', amountCents: 5000, dueDate: '2026-12-15', categoryId: 'acct-travel' }));
+    expect(r.status).toBe(201);
+    const debits = f.state.lines.filter((l) => l.debitCents > 0).map((l) => l.accountId);
+    expect(debits).toContain('acct-travel');
+  });
+  it('another tenant’s account id → 422 invalid_category, nothing created', async () => {
+    flagOn = true;
+    const r = await createBill(req(B, { vendorName: 'Hydro One', amountCents: 5000, dueDate: '2026-12-15', categoryId: 'acct-t2-meals' }));
+    expect([r.status, (await r.json()).code, f.state.bills.length]).toEqual([422, 'invalid_category', 0]);
+  });
+});

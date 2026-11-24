@@ -96,7 +96,12 @@ export function alertCopy(alert: MobileAlert, t: Translate, money: FormatCents):
       break;
     case 'bill_due': {
       const vendor = text(p.vendor) || t('mobile.home.alert.a_vendor');
-      if (signedDays < 0) {
+      if (count > 1) {
+        // PR 3d.2 — several unpaid bills due: "3 bills due — $1,240 still owing".
+        title = signedDays < 0
+          ? t('mobile.home.alert.bills_due_many_overdue', { count, amount })
+          : t('mobile.home.alert.bills_due_many', { count, amount });
+      } else if (signedDays < 0) {
         title = amount
           ? t('mobile.home.alert.bill_overdue', { count: -signedDays, vendor, amount })
           : t('mobile.home.alert.bill_overdue_no_amount', { count: -signedDays, vendor });

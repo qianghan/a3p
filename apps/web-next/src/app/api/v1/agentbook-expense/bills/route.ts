@@ -77,6 +77,8 @@ interface CreateBillBody {
   description?: string;
   amountCents?: number;
   categoryCode?: string;
+  /** PR 3d.2: Capture sends the account id it shows; resolved tenant-scoped to its code. */
+  categoryId?: string;
   dueDate?: string;
   billDate?: string;
   billNumber?: string;
@@ -104,6 +106,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const due = new Date(body.dueDate);
     if (isNaN(due.getTime())) {
       return NextResponse.json({ success: false, error: 'invalid dueDate' }, { status: 400 });
+    }
+
+    if (body.categoryId && !body.categoryCode) {
+      const acct = await db.abAccount.findFirst({ where: { id: body.categoryId, tenantId, accountType: 'expense' } });
+      if (!acct) return NextResponse.json({ success: false, code: 'invalid_category', error: 'unknown categoryId' }, { status: 422 });
+      body.categoryCode = acct.code;
     }
 
     // O6: bills are booked in the tenant currency only (both posting modes).

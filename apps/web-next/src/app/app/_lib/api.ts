@@ -414,6 +414,39 @@ export async function uploadReceipt(
  */
 const REMIND_ENDPOINT = /^\/api\/v1\/agentbook-invoice\/invoices\/[A-Za-z0-9_-]+\/remind$/;
 
+// ── Bills (PR 3d.2 — Capture "Pay later") ────────────────────────────────────
+
+export interface CreateBillBody {
+  vendorName: string;
+  amountCents: number;
+  /** YYYY-MM-DD */
+  dueDate: string;
+  /** YYYY-MM-DD — the document date (Capture's date field). */
+  billDate?: string;
+  categoryId?: string;
+  taxCode?: string;
+  currency?: string;
+  description?: string;
+}
+
+export interface CreatedBill { id: string; vendorName: string; amountCents: number; dueDate: string; status: string }
+
+/**
+ * POST /bills with an idempotency key (header AND body): the offline queue
+ * replays the same key, so a lost response or a replay is one bill, not two.
+ */
+export async function createBill(body: CreateBillBody, idempotencyKey: string): Promise<CreatedBill> {
+  if (!IDEMPOTENCY_KEY_RE.test(idempotencyKey)) throw new ApiError('invalid_request', 400, 'invalid_request');
+  if (!Number.isInteger(body.amountCents) || body.amountCents <= 0 || body.amountCents > MAX_AMOUNT_CENTS) {
+    throw new ApiError('amount_invalid', 400, 'amount_invalid');
+  }
+  return dataOf<CreatedBill>(`${EXPENSE}/bills`, {
+    method: 'POST',
+    headers: { ...JSON_HEADERS, 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ ...body, idempotencyKey }),
+  });
+}
+
 export async function remindInvoice(endpoint: string): Promise<void> {
   if (typeof endpoint !== 'string' || !REMIND_ENDPOINT.test(endpoint)) {
     throw new ApiError('invalid_endpoint', 400, 'invalid_endpoint');

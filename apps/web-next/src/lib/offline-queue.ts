@@ -27,6 +27,8 @@ const EXPENSE_STORE = 'expense-queue';
 const RECEIPT_STORE = 'receipt-queue';
 
 export const FROM_RECEIPT_PATH = '/api/v1/agentbook-expense/expenses/from-receipt';
+export const EXPENSES_PATH = '/api/v1/agentbook-expense/expenses';
+export const BILLS_PATH = '/api/v1/agentbook-expense/bills';
 export const QUEUE_CHANGED_EVENT = 'agentbook:offline-queue-changed';
 export const SYNC_READY_TIMEOUT_MS = 1500;
 
@@ -51,7 +53,11 @@ interface ReceiptRecord {
   /** The server gave a final 4xx answer: never re-POSTed, kept so the user can see why and Discard. */
   permanent?: boolean;
 }
-interface ExpenseRecord { id?: number; payload: Record<string, unknown>; queuedAt: number }
+/**
+ * A queued JSON write. `path` absent = POST /expenses (legacy shape, unchanged);
+ * BILLS_PATH = a Capture "Pay later" bill (PR 3d.2), always with its key.
+ */
+interface ExpenseRecord { id?: number; payload: Record<string, unknown>; queuedAt: number; path?: string; idempotencyKey?: string }
 
 export interface QueueEntry { store: 'receipt' | 'expense'; id: number; label: string | null; amountCents: number | null; queuedAt: number; attempts: number; lastError: string | null; permanent: boolean }
 export interface ReplaySummary { sent: number; failed: number; remaining: number }
@@ -163,6 +169,14 @@ export async function queueExpense(payload: Record<string, unknown>): Promise<vo
   if (!synced) attachFallbackReplay();
 }
 
+/** PR 3d.2 — queue a "Pay later" bill. Replayed to /bills with THIS key (the online attempt's). */
+export async function queueBill(payload: Record<string, unknown>, idempotencyKey: string): Promise<void> {
+  await withStore(EXPENSE_STORE, 'readwrite', (s) => s.add({ payload, path: BILLS_PATH, idempotencyKey, queuedAt: Date.now() } as ExpenseRecord));
+  notifyQueueChanged();
+  const synced = await registerSync('agentbook-expense-sync');
+  if (!synced) attachFallbackReplay();
+}
+
 /** Queue a receipt for replay to from-receipt. Returns the queue entry id. */
 export async function queueReceipt(
   file: Blob,
@@ -214,7 +228,7 @@ export async function listQueue(): Promise<QueueEntry[]> {
   }));
   const e: QueueEntry[] = (expenses ?? []).map((x) => ({
     store: 'expense', id: x.id as number,
-    label: typeof x.payload.vendor === 'string' ? x.payload.vendor : null,
+    label: typeof x.payload.vendor === 'string' ? x.payload.vendor : typeof x.payload.vendorName === 'string' ? x.payload.vendorName : null,
     amountCents: typeof x.payload.amountCents === 'number' ? x.payload.amountCents : null,
     queuedAt: x.queuedAt, attempts: 0, lastError: null, permanent: false,
   }));
@@ -231,10 +245,15 @@ async function replayExpenses(): Promise<{ sent: number }> {
   let sent = 0;
   for (const item of items) {
     try {
-      const res = await fetch('/api/v1/agentbook-expense/expenses', {
+      // Only the two known JSON write paths; anything else is treated as /expenses.
+      const isBill = item.path === BILLS_PATH;
+      const res = await fetch(isBill ? BILLS_PATH : EXPENSES_PATH, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(item.payload),
+        headers: {
+          'content-type': 'application/json',
+          ...(isBill && item.idempotencyKey ? { 'Idempotency-Key': item.idempotencyKey } : {}),
+        },
+        body: JSON.stringify(isBill && item.idempotencyKey ? { ...item.payload, idempotencyKey: item.idempotencyKey } : item.payload),
       });
       if (!res.ok) continue; // leave queued — a real server rejection needs user input, not a silent drop
       await withStore(EXPENSE_STORE, 'readwrite', (s) => { s.delete(item.id as number); });
