@@ -409,8 +409,9 @@ export const BillsPage: React.FC = () => {
                         {unpaid && (
                           <>
                             <button type="button" onClick={() => void pay(b)} className="text-xs font-medium text-primary hover:underline">{t('expenses_ui.pay')}</button>
-                            <button type="button" onClick={() => setPartialFor(partialFor?.id === b.id ? null : { id: b.id, amount: '', key: newKey() })}
-                              aria-expanded={partialFor?.id === b.id} className="text-xs font-medium text-primary hover:underline">{t('expenses_ui.bill_pay_partial')}</button>
+                            {/* Part payments exist only for at_entry bills; payBill refuses them on at_payment (partial_not_supported). */}
+                            {b.postingMode === 'at_entry' && <button type="button" onClick={() => setPartialFor(partialFor?.id === b.id ? null : { id: b.id, amount: '', key: newKey() })}
+                              aria-expanded={partialFor?.id === b.id} className="text-xs font-medium text-primary hover:underline">{t('expenses_ui.bill_pay_partial')}</button>}
                           </>
                         )}
                         {b.status === 'open' && (b.paidCents ?? 0) === 0 && (

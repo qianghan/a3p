@@ -87,7 +87,8 @@ export function parseDueDate(text: string, now: Date = new Date()): Date | null 
 // Linear cut points (no `\s+…\s*` runs that CodeQL flags as polynomial): drop
 // everything from the first stop word, then from the first amount.
 const STOP_WORD = /\s(?:for|of|due|on|at|by|pour|de|d[ue]|à|le|la|payable|échéance)\b/i;
-const STOP_AMOUNT = /[$€£¥]?\d/;
+// An amount starts after whitespace or a currency sign, never mid-word: "ACME9 Supplies $43" keeps "ACME9 Supplies".
+const STOP_AMOUNT = /\s[$€£¥]?\d|[$€£¥]\d/;
 function cutAt(v: string, re: RegExp): string {
   const i = v.search(re);
   return i >= 0 ? v.slice(0, i) : v;

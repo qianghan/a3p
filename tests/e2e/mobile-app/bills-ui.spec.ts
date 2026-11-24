@@ -25,7 +25,7 @@ const CORE = '/api/v1/agentbook-core';
 const CHAT = `${CORE}/agent/message`;
 
 interface Tb { balanced: boolean; byCode: Record<string, number> }
-interface Bill { id: string; vendorName: string; amountCents: number; paidCents: number; status: string; dueDate: string }
+interface Bill { id: string; vendorName: string; amountCents: number; paidCents: number; status: string; dueDate: string; postingMode: string }
 interface Ctx { context: BrowserContext; page: Page; t: CatalogT; formatLocale: string }
 
 async function trialBalance(page: Page): Promise<Tb> {
@@ -107,11 +107,18 @@ for (const persona of ['alex', 'maya', 'sydney'] as Persona[]) {
 
       const row = page.getByTestId(`bill-row-${bill.id}`);
       await expect(row).toBeVisible({ timeout: 20_000 });
-      await row.getByRole('button', { name: t('expenses_ui.bill_pay_partial') }).click();
-      await page.getByRole('textbox').last().fill(amountInputText(dollars / 2, formatLocale));
-      await page.getByRole('button', { name: t('expenses_ui.bill_record_payment') }).click();
-      await expect.poll(async () => (await billsTagged(page, tag))[0].paidCents, { timeout: 20_000 }).toBe((dollars / 2) * 100);
-      expect((await billsTagged(page, tag))[0].status).toBe('partial');
+      // Part payments exist only for at_entry bills (purchases_at_entry on); a legacy
+      // at_payment bill must not offer them — payBill would refuse with partial_not_supported.
+      const atEntry = bill.postingMode === 'at_entry';
+      if (atEntry) {
+        await row.getByRole('button', { name: t('expenses_ui.bill_pay_partial') }).click();
+        await page.getByRole('textbox').last().fill(amountInputText(dollars / 2, formatLocale));
+        await page.getByRole('button', { name: t('expenses_ui.bill_record_payment') }).click();
+        await expect.poll(async () => (await billsTagged(page, tag))[0].paidCents, { timeout: 20_000 }).toBe((dollars / 2) * 100);
+        expect((await billsTagged(page, tag))[0].status).toBe('partial');
+      } else {
+        await expect(row.getByRole('button', { name: t('expenses_ui.bill_pay_partial') })).toHaveCount(0);
+      }
 
       await page.getByTestId(`bill-row-${bill.id}`).getByRole('button', { name: t('expenses_ui.pay'), exact: true }).click();
       await expect.poll(async () => (await billsTagged(page, tag))[0].status, { timeout: 20_000 }).toBe('paid');
@@ -123,9 +130,10 @@ for (const persona of ['alex', 'maya', 'sydney'] as Persona[]) {
       // Unwind through the UI: void each payment, then the bill.
       await page.reload();
       await page.getByRole('button', { name: t('expenses_ui.bill_show_payments', { vendor }) }).click();
-      for (let i = 0; i < 2; i++) {
+      const payments = atEntry ? 2 : 1;
+      for (let i = 0; i < payments; i++) {
         await page.getByRole('button', { name: t('expenses_ui.bill_void_payment') }).first().click();
-        await expect.poll(async () => (await billsTagged(page, tag))[0].paidCents, { timeout: 20_000 }).toBe(i === 0 ? (dollars / 2) * 100 : 0);
+        await expect.poll(async () => (await billsTagged(page, tag))[0].paidCents, { timeout: 20_000 }).toBe(i < payments - 1 ? (dollars / 2) * 100 : 0);
       }
       await page.getByTestId(`bill-row-${bill.id}`).getByRole('button', { name: t('expenses_ui.bill_void') }).click();
       await expect.poll(async () => (await billsTagged(page, tag))[0].status, { timeout: 20_000 }).toBe('cancelled');

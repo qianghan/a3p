@@ -112,6 +112,13 @@ describe('Bills page', () => {
     expect([writes()[1].url, writes()[1].body.amountCents]).toEqual(['/api/v1/agentbook-expense/bills/b2?action=pay', 5000]);
   });
 
+  it('a legacy at_payment bill offers Pay but not Pay part (payBill refuses partials there)', async () => {
+    const t = await mount();
+    expect(row('b4').getByRole('button', { name: t('expenses_ui.pay') })).toBeTruthy();
+    expect(row('b4').queryByRole('button', { name: t('expenses_ui.bill_pay_partial') })).toBeNull();
+    expect(row('b1').getByRole('button', { name: t('expenses_ui.bill_pay_partial') })).toBeTruthy();
+  });
+
   it('void: DELETE the bill; a 409 bill_has_payments says to void payments first', async () => {
     const t = await mount();
     reply = (c) => (c.method === 'DELETE' ? { status: 409, body: { success: false, code: 'bill_has_payments' } } : undefined);

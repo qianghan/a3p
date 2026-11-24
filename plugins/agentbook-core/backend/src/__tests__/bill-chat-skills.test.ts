@@ -204,6 +204,9 @@ describe('parsers', () => {
   it('parseBillVendor', () => {
     expect(parseBillVendor('Add a bill from Hydro One $84.50 due Dec 15')).toBe('Hydro One');
     expect(parseBillVendor('Pay the Staples bill')).toBe('Staples');
+    // A digit inside the vendor name is not an amount (prod e2e: tagged vendors were cut to "E").
+    expect(parseBillVendor('Add a bill from ACME9 Supplies $43.21 due 2026-12-09')).toBe('ACME9 Supplies');
+    expect(parseBillVendor('Add a bill from E2EBILX7CHAT $43.21 due 2026-12-09')).toBe('E2EBILX7CHAT');
     expect(parseBillVendor('Ajouter une facture fournisseur de Bell 120 $')).toBe('Bell');
     expect(parseBillVendor('Enregistrer une facture à payer de Hydro-Québec 84 $')).toBe('Hydro-Québec');
     expect(parseBillVendor('记录一笔来自电力公司的账单 300 元')).toBe('电力公司');
