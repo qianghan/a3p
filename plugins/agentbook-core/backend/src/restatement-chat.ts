@@ -18,7 +18,7 @@ export type RestatementMode = 'preview' | 'apply';
 /** Batches one chat apply follows (each is ≤100 rows on the server). */
 export const MAX_CHAT_APPLY_CALLS = 5;
 /** Stop starting new batches once this much of the turn has elapsed (R2-1). */
-export const CHAT_APPLY_BUDGET_MS = 35_000;
+export const CHAT_APPLY_BUDGET_MS = 25_000; // 25 s, not 35: a batch can overrun its 40 s budget by classify + one row + network (review R3-1)
 /** The agent/message function limit, and the route's own per-call budget (lib/tax-restatement.ts). */
 export const CHAT_TURN_MAX_MS = 90_000;
 export const ROUTE_BATCH_MAX_MS = 40_000;
