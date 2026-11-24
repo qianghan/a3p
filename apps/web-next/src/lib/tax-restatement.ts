@@ -112,6 +112,8 @@ export interface RestatementApplyResult extends RestatementPreview {
   restated: RestatementRow[];
   failed: FailedRestatementRow[];
   remaining: number;
+  /** Present when `remaining > 0`: pass it back to continue AFTER the last row this call attempted (N-2). */
+  cursor?: string;
 }
 
 const day = (d: Date) => d.toISOString().slice(0, 10);
@@ -221,12 +223,17 @@ async function classify(client: Client, tenantId: string, year: number): Promise
     };
     const skip = (reason: RestatementSkipReason, row: RestatementRow = baseRow) => out.skipped.push({ ...row, recoverableTaxCents: 0, reason });
 
-    // M-4: amounts are never converted; a row in another currency than the
-    // tenant's would be priced against the wrong rates. Expense create
-    // defaults currency to 'USD' when a client sends none, so for an AUD/CAD
-    // tenant such a row is listed here rather than guessed.
+    // M-4 / N-1: amounts are never converted, so a row in another currency
+    // than the tenant's is not restated. BUT 'USD' is the schema and create-
+    // route default (web form, chat, Telegram, import, per-diem and OCR all
+    // store it without asking), so for a non-USD tenant 'USD' means "not
+    // recorded" and is treated as the tenant's currency. The safeguard for a
+    // genuine USD purchase is the tax-match gate below: its printed US sales
+    // tax must agree with the tenant's GST/HST within 2¢ or it is skipped as
+    // tax_mismatch (test: an 8% US receipt on a CA tenant).
     const rowCurrency = String((e as { currency?: string | null }).currency || '').toUpperCase();
-    if (tenantCurrency && rowCurrency && rowCurrency !== tenantCurrency) { skip('currency_mismatch'); continue; }
+    const effectiveCurrency = rowCurrency === 'USD' && tenantCurrency !== 'USD' ? tenantCurrency : rowCurrency;
+    if (tenantCurrency && effectiveCurrency && effectiveCurrency !== tenantCurrency) { skip('currency_mismatch'); continue; }
 
     // The booked entry decides the shape, the date and the account (M-1, M-2).
     const entry = await client.abJournalEntry.findFirst({ where: { id: e.journalEntryId, tenantId } });
@@ -320,7 +327,7 @@ export async function applyTaxRestatement(
   tenantId: string,
   year: number,
   client: Client = db,
-  opts: { expenseIds?: string[]; limit?: number; timeBudgetMs?: number; now?: () => number } = {},
+  opts: { expenseIds?: string[]; limit?: number; timeBudgetMs?: number; now?: () => number; cursor?: string | null } = {},
 ): Promise<RestatementApplyResult> {
   const c = await classify(client, tenantId, year);
   if (opts.expenseIds) {
@@ -328,6 +335,12 @@ export async function applyTaxRestatement(
     c.eligible = c.eligible.filter((x) => only.has(x.row.expenseId));
     c.skipped = c.skipped.filter((x) => only.has(x.expenseId));
   }
+  // N-2: a stable order (date, id) and a cursor, so rows that keep failing
+  // cannot hold every later call on the same first batch. Rows before the
+  // cursor are left for a fresh run (no cursor), which retries failures.
+  const keyOf = (r: RestatementRow) => `${r.date}|${r.expenseId}`;
+  c.eligible.sort((x, y) => (keyOf(x.row) < keyOf(y.row) ? -1 : keyOf(x.row) > keyOf(y.row) ? 1 : 0));
+  if (opts.cursor) c.eligible = c.eligible.filter((x) => keyOf(x.row) > (opts.cursor as string));
   const limit = Math.max(1, opts.limit ?? RESTATEMENT_BATCH_SIZE);
   const budget = opts.timeBudgetMs ?? RESTATEMENT_TIME_BUDGET_MS;
   const clock = opts.now ?? Date.now;
@@ -338,10 +351,12 @@ export async function applyTaxRestatement(
   const skipped: SkippedRestatementRow[] = [...c.skipped];
   let alreadyTyped = c.alreadyTyped;
   let processed = 0;
+  let lastKey: string | null = null;
 
   for (const { row, entryId } of c.eligible) {
     if (processed >= limit || clock() - started > budget) break;
     processed++;
+    lastKey = keyOf(row);
     try {
       await client.$transaction(async (tx) => {
         const n = await tx.abExpense.updateMany({
@@ -374,5 +389,6 @@ export async function applyTaxRestatement(
     restated,
     failed,
     remaining: c.eligible.length - processed,
+    ...(c.eligible.length - processed > 0 && lastKey ? { cursor: lastKey } : {}),
   };
 }

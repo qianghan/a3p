@@ -321,12 +321,43 @@ describe('review fix round 1', () => {
 
   it('M-4: a row in another currency than the tenant\'s is skipped as currency_mismatch', async () => {
     h.fake.state.tenantConfigs.push({ ...AU, currency: 'AUD' });
-    seedLegacy('usd', new Date('2026-03-01T12:00:00Z'));
+    seedLegacy('nzd', new Date('2026-03-01T12:00:00Z'));
     seedLegacy('aud', new Date('2026-03-02T12:00:00Z'));
-    h.fake.state.expenses[0].currency = 'USD';
+    h.fake.state.expenses[0].currency = 'NZD';
     h.fake.state.expenses[1].currency = 'AUD';
     const p = await previewTaxRestatement('t1', 2026);
     expect(p.eligible.map((r) => r.expenseId)).toEqual(['aud']);
-    expect(p.skipped.map((s) => [s.expenseId, s.reason])).toEqual([['usd', 'currency_mismatch']]);
+    expect(p.skipped.map((s) => [s.expenseId, s.reason])).toEqual([['nzd', 'currency_mismatch']]);
+  });
+});
+
+describe('review fix round 2', () => {
+  const CA_AB = { userId: 't1', jurisdiction: 'ca', region: 'AB', gstRegistered: true, currency: 'CAD' };
+
+  it('N-1: a USD-stored (create-path default) CA row with 5% GST is eligible; a real US receipt (8% sales tax) is tax_mismatch', async () => {
+    h.fake.state.tenantConfigs.push(CA_AB);
+    seedLegacy('gst', new Date('2026-03-01T12:00:00Z'), 10500, 500);
+    seedLegacy('us', new Date('2026-03-02T12:00:00Z'), 10800, 800);
+    seedLegacy('eur', new Date('2026-03-03T12:00:00Z'), 10500, 500);
+    for (const e of h.fake.state.expenses) e.currency = e.id === 'eur' ? 'EUR' : 'USD';
+    const p = await previewTaxRestatement('t1', 2026);
+    expect(p.eligible.map((r) => [r.expenseId, r.taxCode, r.recoverableTaxCents])).toEqual([['gst', 'GST', 500]]);
+    expect(p.skipped.map((s) => [s.expenseId, s.reason])).toEqual([['us', 'tax_mismatch'], ['eur', 'currency_mismatch']]);
+  });
+
+  it('N-2: 105 persistently failing rows do not starve the good rows after them (cursor)', async () => {
+    h.fake.state.tenantConfigs.push(AU);
+    const d = new Date('2026-03-01T12:00:00Z');
+    for (let i = 0; i < 105; i++) seedLegacy(`a${String(i).padStart(3, '0')}`, d);
+    for (const id of ['b1', 'b2', 'b3']) seedLegacy(id, d);
+    const fail = () => { h.fake.state.injectTxErrors.length = 0; for (let i = 0; i < 105; i++) h.fake.state.injectTxErrors.push('ETIMEDOUT'); };
+    fail();
+    const first = await applyTaxRestatement('t1', 2026);
+    expect([first.restated.length, first.failed.length, first.remaining]).toEqual([0, 100, 8]);
+    expect(first.cursor).toBeTruthy();
+    const second = await applyTaxRestatement('t1', 2026, undefined, { cursor: first.cursor });
+    expect(second.failed.length).toBe(5);
+    expect(second.restated.map((x) => x.expenseId)).toEqual(['b1', 'b2', 'b3']);
+    expect([second.remaining, second.cursor ?? null]).toEqual([0, null]);
   });
 });
