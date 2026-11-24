@@ -58,6 +58,8 @@ export interface MatchableTxn {
   date: Date;
   name: string;
   merchantName: string | null;
+  /** The bank account's currency, when the caller knows it (bill matching compares it). */
+  currency?: string | null;
 }
 
 export interface MatchableInvoice {
@@ -85,6 +87,10 @@ export interface MatchableBill {
   dueDate: Date;
   status: string;
   vendorName: string | null;
+  /** Resolved currency (bill.currency ?? tenant currency). */
+  currency?: string | null;
+  /** 'at_payment' bills cannot be part-paid, so an under-owing debit is not theirs. */
+  postingMode?: string | null;
 }
 
 export type MatchKind = 'invoice' | 'expense' | 'bill' | 'none';
@@ -93,6 +99,8 @@ export interface MatchResult {
   kind: MatchKind;
   score: number;
   targetId?: string;
+  /** Bill candidates: debit − still owing (>0 = the debit is larger, e.g. a fee). */
+  amountDeltaCents?: number;
 }
 
 // === Helpers ===
@@ -260,6 +268,10 @@ export function scoreBillMatch(txn: MatchableTxn, bill: MatchableBill): number {
   if (bill.status !== 'open' && bill.status !== 'partial') return 0;
   if (bill.outstandingCents <= 0) return 0;
   if (!withinAmountTolerance(txn.amountCents, bill.outstandingCents)) return 0;
+  // Review I2: never across currencies (when both are known).
+  if (txn.currency && bill.currency && txn.currency.toUpperCase() !== bill.currency.toUpperCase()) return 0;
+  // Review M1: an at_payment bill cannot be part-paid.
+  if (bill.postingMode !== 'at_entry' && txn.amountCents < bill.outstandingCents) return 0;
   const from = (bill.billDate ?? bill.dueDate).getTime() - DATE_WINDOW_DAYS * ONE_DAY_MS;
   const to = bill.dueDate.getTime() + DATE_WINDOW_DAYS * ONE_DAY_MS;
   const t = txn.date.getTime();
@@ -389,10 +401,13 @@ export async function matchTransactionWithCandidates(
       },
       take: 50,
     });
+    const needsTenantCur = billRows.some((b) => !b.currency);
+    const cfg = needsTenantCur ? await db.abTenantConfig?.findUnique?.({ where: { userId: tenantId } }).catch(() => null) : null;
     const billScored = billRows
       .map<MatchResult>((b) => ({
         kind: 'bill' as const,
         targetId: b.id,
+        amountDeltaCents: txn.amountCents - (b.amountCents - (b.paidCents ?? 0)),
         score: scoreBillMatch(txn, {
           id: b.id,
           outstandingCents: b.amountCents - (b.paidCents ?? 0),
@@ -400,6 +415,8 @@ export async function matchTransactionWithCandidates(
           dueDate: b.dueDate,
           status: b.status,
           vendorName: b.vendorName,
+          currency: b.currency ?? cfg?.currency ?? null,
+          postingMode: b.postingMode,
         }),
       }))
       .filter((r) => r.score > 0);

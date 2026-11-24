@@ -374,7 +374,13 @@ export async function runMatcherOnTransaction(
         data: { matchedExpenseId: result.targetId, matchStatus: 'matched' },
       });
       return { matchStatus: 'matched', targetId: result.targetId, score: result.score };
-    }    if (result.kind === 'bill') {
+    }    // Review M2: a debit LARGER than what is owing (fee on top) is never
+    // auto-applied — it goes to review with the guess stored.
+    if (result.kind === 'bill' && (result.amountDeltaCents ?? 0) > 0) {
+      await db.abBankTransaction.update({ where: { id: row.id }, data: { matchedBillId: result.targetId, matchStatus: 'exception' } });
+      return { matchStatus: 'exception', targetId: result.targetId, score: result.score };
+    }
+    if (result.kind === 'bill') {
       // PR 3d.4: a debit for an unpaid bill is a bill payment (lib/purchases),
       // never an expense. A refused payment (closed period, already paid)
       // leaves the row for review instead of failing the sync.

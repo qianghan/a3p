@@ -63,6 +63,8 @@ export class BankMatchError extends PublicError {
       | 'bill_not_found'
       | 'txn_not_debit'
       | 'txn_already_matched'
+      | 'txn_currency_mismatch'
+      | 'amount_mismatch'
       | 'coa_missing',
   ) {
     super(message);
@@ -262,6 +264,8 @@ export interface ApplyBillMatchResult {
   remainingCents: number;
   billPaid: boolean;
   vendorName: string;
+  /** Debit minus what was paid (a fee on top of the bill); 0 when exact. */
+  excessCents: number;
 }
 
 /**
@@ -278,50 +282,87 @@ export interface ApplyBillMatchResult {
  */
 export async function applyBillMatch(input: ApplyBillMatchInput): Promise<ApplyBillMatchResult> {
   const { tenantId, txnId, billId, source } = input;
-  const txn = await db.abBankTransaction.findFirst({ where: { id: txnId, tenantId } });
+  const txn = await db.abBankTransaction.findFirst({
+    where: { id: txnId, tenantId },
+    include: { bankAccount: { select: { currency: true } } },
+  });
   if (!txn) throw new BankMatchError('Transaction not found', 'txn_not_found');
   if (txn.amount <= 0) throw new BankMatchError('Only a debit can pay a bill', 'txn_not_debit');
-  // A review-state guess ('exception' + matchedExpenseId) may be overridden;
-  // a confirmed match to anything else may not. Same bill again = replay.
-  if (txn.matchStatus === 'matched' && txn.matchedBillId !== billId) {
-    throw new BankMatchError('This transaction is already matched', 'txn_already_matched');
-  }
   const bill = await db.abBill.findFirst({ where: { id: billId, tenantId, deletedAt: null } });
   if (!bill) throw new BankMatchError('Bill not found', 'bill_not_found');
 
+  // Review I2: the debit and the bill must be in the same currency. A bill
+  // with no currency is in the tenant's; an account with none is unknown.
+  const cfg = bill.currency ? null : await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+  const billCur = String(bill.currency ?? cfg?.currency ?? 'USD').toUpperCase();
+  const txnCur = (txn as { bankAccount?: { currency?: string | null } | null }).bankAccount?.currency?.toUpperCase();
+  if (txnCur && txnCur !== billCur) {
+    throw new BankMatchError(`This ${txnCur} debit cannot pay a ${billCur} bill`, 'txn_currency_mismatch');
+  }
+
   const key = `bank:${txn.id}`;
+  // Review I1: a live payment keyed to this debit on ANY other bill means the
+  // debit is spent, whatever matchStatus says (e.g. a review-band re-point).
+  const elsewhere = await db.abBillPayment.findFirst({ where: { tenantId, idempotencyKey: key, voidedAt: null, billId: { not: bill.id } } });
+  if (elsewhere) throw new BankMatchError('This transaction already paid another bill', 'txn_already_matched');
   const prior = await db.abBillPayment.findFirst({ where: { tenantId, billId: bill.id, idempotencyKey: key } });
   const owing = bill.amountCents - (bill.paidCents ?? 0);
+  // Review M1: a legacy at_payment bill cannot be part-paid; a debit below
+  // what is owing is not this bill's payment (the matcher never proposes it).
+  if (!prior && txn.amount < owing && bill.postingMode !== 'at_entry') {
+    throw new BankMatchError('The debit is less than the bill and this bill cannot be part-paid', 'amount_mismatch');
+  }
   const amountCents = prior ? prior.amountCents : Math.min(txn.amount, owing);
-  const { bill: after, payment } = await payBill(db, tenantId, bill.id, {
-    amountCents,
-    date: prior ? (prior.date as Date) : txn.date,
-    method: 'bank',
-    idempotencyKey: key,
+
+  // Review I1: claim the debit atomically BEFORE paying. The WHERE is
+  // re-evaluated under the row lock, so of two racing claims (bank sync → A,
+  // a tap → B) exactly one updates the row; the loser pays nothing.
+  // Re-claiming for the same bill is allowed (a retry replays its payment).
+  const before = { matchStatus: txn.matchStatus, matchedBillId: txn.matchedBillId, matchedExpenseId: txn.matchedExpenseId };
+  const claim = await db.abBankTransaction.updateMany({
+    where: { id: txn.id, tenantId, OR: [{ matchStatus: { not: 'matched' } }, { matchedBillId: bill.id }] },
+    data: { matchedBillId: bill.id, matchedExpenseId: null, matchStatus: 'matched' },
+  });
+  if (claim.count === 0) throw new BankMatchError('This transaction is already matched', 'txn_already_matched');
+
+  let after: Awaited<ReturnType<typeof payBill>>['bill'];
+  let payment: Awaited<ReturnType<typeof payBill>>['payment'];
+  try {
+    ({ bill: after, payment } = await payBill(db, tenantId, bill.id, {
+      amountCents,
+      date: prior ? (prior.date as Date) : txn.date,
+      method: 'bank',
+      idempotencyKey: key,
+    }));
+  } catch (err) {
+    // The payment was refused (closed period, already paid…): release the
+    // claim so the debit can be matched to something else.
+    if (!prior) {
+      await db.abBankTransaction.updateMany({ where: { id: txn.id, tenantId, matchedBillId: bill.id, matchStatus: 'matched' }, data: before });
+    }
+    throw err;
+  }
+
+  // Review M2: a debit above what was owing (bank fee) is not booked as a fee
+  // — there is no fee account the user chose; the excess is reported so the
+  // reconciliation can show it. Bank sync never auto-applies such a debit.
+  const excessCents = Math.max(0, txn.amount - payment.amountCents);
+  await db.abEvent.create({
+    data: {
+      tenantId,
+      eventType: 'bank.txn_matched',
+      actor: source === 'bank_sync' ? 'system' : 'user',
+      action: { transactionId: txn.id, targetType: 'bill', billId: bill.id, paymentId: payment.id, amountCents: payment.amountCents, excessCents, source },
+    },
   });
 
-  await db.$transaction(async (tx) => {
-    await tx.abBankTransaction.update({
-      where: { id: txn.id },
-      data: { matchedBillId: bill.id, matchedExpenseId: null, matchStatus: 'matched' },
-    });
-    await tx.abEvent.create({
-      data: {
-        tenantId,
-        eventType: 'bank.txn_matched',
-        actor: source === 'bank_sync' ? 'system' : 'user',
-        action: { transactionId: txn.id, targetType: 'bill', billId: bill.id, paymentId: payment.id, amountCents, source },
-      },
-    });
-  });
-
-  const remainingCents = Math.max(0, after.amountCents - (after.paidCents ?? 0));
   return {
     billId: bill.id,
     paymentId: payment.id,
     paymentAmountCents: payment.amountCents,
-    remainingCents,
+    remainingCents: Math.max(0, after.amountCents - (after.paidCents ?? 0)),
     billPaid: after.status === 'paid',
     vendorName: bill.vendorName,
+    excessCents,
   };
 }

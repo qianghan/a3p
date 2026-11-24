@@ -308,5 +308,9 @@
   "and_n_more": " (and {count} more)",
   "bill_paid_from_bank": "✅ Paid {p0} to <b>{p1}</b> — the bill is paid in full.",
   "bill_part_paid_from_bank": "✅ Paid {p0} to <b>{p1}</b>; {p2} still owing.",
-  "bill_label": "Bill"
+  "bill_label": "Bill",
+  "match_bill_missing": "Bill missing",
+  "match_already_matched": "Already matched",
+  "match_currency_differs": "Bill is in another currency",
+  "match_amount_differs": "Amount differs from the bill"
 }

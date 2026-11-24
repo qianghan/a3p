@@ -45,6 +45,8 @@ interface CandidateOut {
   amountCents: number;
   date: string;
   score: number;
+  /** Bill candidates (review M2): debit − still owing, shown so a fee on top is visible before the tap. */
+  differenceCents?: number;
 }
 
 export async function GET(
@@ -62,6 +64,7 @@ export async function GET(
 
     const txn = await db.abBankTransaction.findFirst({
       where: { id, tenantId },
+      include: { bankAccount: { select: { currency: true } } },
     });
     if (!txn) {
       return NextResponse.json({ success: false, error: 'Transaction not found' }, { status: 404 });
@@ -73,6 +76,7 @@ export async function GET(
       date: txn.date,
       name: txn.name,
       merchantName: txn.merchantName,
+      currency: txn.bankAccount?.currency ?? null,
     }, limit);
 
     // Hydrate each candidate into a human-readable shape. Done with
@@ -113,6 +117,7 @@ export async function GET(
             amountCents: bill.amountCents - (bill.paidCents ?? 0),
             date: bill.dueDate.toISOString(),
             score: c.score,
+            differenceCents: c.amountDeltaCents ?? 0,
           });
         }
       } else if (c.kind === 'expense') {

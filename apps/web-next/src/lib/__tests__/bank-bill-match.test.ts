@@ -51,11 +51,23 @@ function attachBankTables() {
   f.db.abBankTransaction = {
     findFirst: async ({ where }: any) => { const r = txns.find((x) => m(x, where)); return r ? { ...r } : null; },
     update: async ({ where, data }: any) => { const r = txns.find((x) => x.id === where.id); Object.assign(r, data); return { ...r }; },
+    // Models Postgres: the WHERE is re-checked atomically per row, so one of two racing claims wins.
+    updateMany: async ({ where, data }: any) => {
+      const ok = (r: any) => {
+        const { OR, ...rest } = where;
+        const base = Object.entries(rest).every(([k, v]: any) => (v && typeof v === 'object' && 'not' in v ? r[k] !== v.not : r[k] === v));
+        const any = !OR || OR.some((c: any) => Object.entries(c).every(([k, v]: any) => (v && typeof v === 'object' && 'not' in v ? r[k] !== v.not : r[k] === v)));
+        return base && any;
+      };
+      const rows = txns.filter(ok);
+      for (const r of rows) Object.assign(r, data);
+      return { count: rows.length };
+    },
   };
   f.db.abEvent = { create: async ({ data }: any) => { events.push(data); return data; } };
 }
 const txn = (o: Partial<any> = {}) => {
-  const row = { id: `tx-${txns.length + 1}`, tenantId: 't1', amount: 11000, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS 123', merchantName: 'Officeworks', matchStatus: 'pending', matchedBillId: null, matchedExpenseId: null, matchedInvoiceId: null, ...o };
+  const row = { id: `tx-${txns.length + 1}`, tenantId: 't1', amount: 11000, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS 123', merchantName: 'Officeworks', matchStatus: 'pending', matchedBillId: null, matchedExpenseId: null, matchedInvoiceId: null, bankAccount: { currency: 'AUD' }, ...o };
   txns.push(row);
   return row;
 };
@@ -168,9 +180,72 @@ describe('wiring', () => {
     const b = await bill();
     f.state.bills[0].paidCents = 4000;
     const tx = txn({ amount: 7000 });
-    candidatesResult.mockResolvedValue([{ kind: 'bill', targetId: b.id, score: 0.9 }, { kind: 'bill', targetId: 'b-foreign', score: 0.8 }]);
+    candidatesResult.mockResolvedValue([{ kind: 'bill', targetId: b.id, score: 0.9, amountDeltaCents: 0 }, { kind: 'bill', targetId: 'b-foreign', score: 0.8 }]);
     const res = await candidatesRoute({ url: 'http://x', nextUrl: new URL('http://x?limit=3'), headers: new Headers() } as never, { params: Promise.resolve({ id: tx.id }) });
     const body = await res.json();
-    expect(body.data.candidates).toEqual([{ kind: 'bill', targetId: b.id, label: 'Officeworks', amountCents: 7000, date: '2026-12-02T00:00:00.000Z', score: 0.9 }]);
+    expect(body.data.candidates).toEqual([{ kind: 'bill', targetId: b.id, label: 'Officeworks', amountCents: 7000, date: '2026-12-02T00:00:00.000Z', score: 0.9, differenceCents: 0 }]);
+  });
+});
+
+describe('fix round 1 — review I1/I2/M1/M2', () => {
+  it('I1: one debit never pays two bills — concurrent applies to A and B: exactly one payment, the loser is refused', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    const results = await Promise.allSettled([
+      applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' }),
+      applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'telegram_button' }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ code: 'txn_already_matched' });
+    expect(f.state.billPayments).toHaveLength(1);
+    expect(txns[0].matchedBillId).toBe(f.state.billPayments[0].billId);
+    expect(netBySource('bill_payment')['acct-cash']).toBe(-11000);
+  });
+  it('I1: a debit already paying bill A (payment on file) cannot be re-pointed to B, even from the review band', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' });
+    txns[0].matchStatus = 'exception';
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'reconciliation' })).rejects.toMatchObject({ code: 'txn_already_matched' });
+    expect(f.state.billPayments).toHaveLength(1);
+  });
+  it('I1: a refused payment releases the claim (the txn can be matched again)', async () => {
+    const a = await bill();
+    const tx = txn();
+    f.state.bills[0].status = 'paid'; f.state.bills[0].paidCents = 11000;
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' })).rejects.toBeTruthy();
+    expect([txns[0].matchStatus, txns[0].matchedBillId]).toEqual(['pending', null]);
+  });
+  it('I2: a bill in another currency than the bank account is refused, nothing posted; scoring gives it 0', async () => {
+    const a = await bill();
+    f.state.bills[0].currency = 'USD';
+    const tx = txn({ bankAccount: { currency: 'AUD' } });
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' })).rejects.toMatchObject({ code: 'txn_currency_mismatch' });
+    expect([f.state.billPayments.length, txns[0].matchStatus]).toEqual([0, 'pending']);
+    const t0 = { id: 'x', amountCents: 11000, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS', merchantName: 'Officeworks', currency: 'AUD' };
+    const b0 = { id: 'b', outstandingCents: 11000, billDate: new Date('2026-11-02T00:00:00Z'), dueDate: new Date('2026-12-02T00:00:00Z'), status: 'open', vendorName: 'Officeworks', currency: 'USD', postingMode: 'at_entry' };
+    expect(scoreBillMatch(t0, b0)).toBe(0);
+    expect(scoreBillMatch(t0, { ...b0, currency: 'AUD' })).toBeGreaterThan(0);
+  });
+  it('M1: an under-owing debit never scores against an at_payment bill (partial not supported) and apply refuses before claiming', async () => {
+    const t0 = { id: 'x', amountCents: 10950, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS', merchantName: 'Officeworks' };
+    const b0 = { id: 'b', outstandingCents: 11000, billDate: new Date('2026-11-02T00:00:00Z'), dueDate: new Date('2026-12-02T00:00:00Z'), status: 'open', vendorName: 'Officeworks', postingMode: 'at_payment' };
+    expect(scoreBillMatch(t0, b0)).toBe(0);
+    expect(scoreBillMatch(t0, { ...b0, postingMode: 'at_entry' })).toBeGreaterThan(0);
+    f.state.bills.push({ id: 'b-leg', tenantId: 't1', vendorName: 'Officeworks', amountCents: 11000, paidCents: 0, status: 'open', postingMode: 'at_payment', dueDate: new Date('2026-12-02T00:00:00Z'), deletedAt: null, revision: 0 });
+    await expect(applyBillMatch({ tenantId: 't1', txnId: txn({ amount: 10950 }).id, billId: 'b-leg', source: 'reconciliation' })).rejects.toMatchObject({ code: 'amount_mismatch' });
+    expect([f.state.billPayments.length, txns[0].matchStatus]).toEqual([0, 'pending']);
+  });
+  it('M2: a debit above owing is never auto-applied by bank sync (review band, nothing paid); a manual tap pays owing and reports the excess', async () => {
+    const a = await bill();
+    const tx = txn({ amount: 11040 });
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 40 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect([r.matchStatus, f.state.billPayments.length, txns[0].matchedBillId]).toEqual(['exception', 0, a.id]);
+    const m = await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' });
+    expect([m.paymentAmountCents, m.excessCents]).toEqual([11000, 40]);
+    expect(events.at(-1).action.excessCents).toBe(40);
   });
 });

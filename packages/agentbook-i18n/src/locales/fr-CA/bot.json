@@ -308,5 +308,9 @@
   "and_n_more": " (et {count} de plus)",
   "bill_paid_from_bank": "✅ {p0} payé à <b>{p1}</b> — la facture est entièrement réglée.",
   "bill_part_paid_from_bank": "✅ {p0} payé à <b>{p1}</b>; il reste {p2} à payer.",
-  "bill_label": "Facture à payer"
+  "bill_label": "Facture à payer",
+  "match_bill_missing": "Facture introuvable",
+  "match_already_matched": "Déjà rapprochée",
+  "match_currency_differs": "La facture est dans une autre devise",
+  "match_amount_differs": "Le montant diffère de la facture"
 }

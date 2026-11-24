@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { reportError } from '@/lib/logger';
 import { requireCronSecret } from '@/lib/cron-auth';
-import { matchTransactionWithCandidates } from '@/lib/agentbook-payment-matcher';
+import { matchTransactionWithCandidates, REVIEW_THRESHOLD } from '@/lib/agentbook-payment-matcher';
 
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -76,7 +76,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           const cands = await matchTransactionWithCandidates(tenant.userId, {
             id: tx.id, amountCents: tx.amount, date: new Date(tx.date), name: tx.name, merchantName: tx.merchantName,
           }, 5);
-          if (cands.some((c) => c.kind === 'bill')) continue;
+          // Review M4: only a real proposal (≥ the review threshold) holds the debit back.
+          if (cands.some((c) => c.kind === 'bill' && c.score >= REVIEW_THRESHOLD)) continue;
           // Auto-record silently
           await db.abExpense.create({
             data: {

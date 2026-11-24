@@ -5721,8 +5721,10 @@ function getBot(): Bot {
             const toast =
               err.code === 'invoice_not_found' ? 'Invoice missing' :
               err.code === 'expense_not_found' ? 'Expense missing' :
-              err.code === 'bill_not_found' ? 'Bill missing' :
-              err.code === 'txn_already_matched' ? 'Already matched' :
+              err.code === 'bill_not_found' ? botT('bot.match_bill_missing') :
+              err.code === 'txn_already_matched' ? botT('bot.match_already_matched') :
+              err.code === 'txn_currency_mismatch' ? botT('bot.match_currency_differs') :
+              err.code === 'amount_mismatch' ? botT('bot.match_amount_differs') :
               err.code === 'coa_missing' ? 'Chart of accounts missing' :
               'Transaction not found';
             await ctx.answerCallbackQuery({ text: toast });
@@ -5873,7 +5875,7 @@ function getBot(): Bot {
           for (const b of bills) {
             const owing = b.amountCents - (b.paidCents ?? 0);
             if (Math.abs(owing - txn.amount) > tol) continue;
-            const score = scoreBillMatch(matchableTxn, { id: b.id, outstandingCents: owing, billDate: b.billDate ?? null, dueDate: b.dueDate, status: b.status, vendorName: b.vendorName });
+            const score = scoreBillMatch(matchableTxn, { id: b.id, outstandingCents: owing, billDate: b.billDate ?? null, dueDate: b.dueDate, status: b.status, vendorName: b.vendorName, currency: b.currency, postingMode: b.postingMode });
             const label = `${botT('bot.bill_label')}: ${b.vendorName} ${fmtAmount(owing)}`.slice(0, 40);
             candidates.push({ label, targetType: 'bill', targetId: b.id, score });
           }
@@ -6021,8 +6023,10 @@ function getBot(): Bot {
             const toast =
               err.code === 'invoice_not_found' ? 'Invoice missing' :
               err.code === 'expense_not_found' ? 'Expense missing' :
-              err.code === 'bill_not_found' ? 'Bill missing' :
-              err.code === 'txn_already_matched' ? 'Already matched' :
+              err.code === 'bill_not_found' ? botT('bot.match_bill_missing') :
+              err.code === 'txn_already_matched' ? botT('bot.match_already_matched') :
+              err.code === 'txn_currency_mismatch' ? botT('bot.match_currency_differs') :
+              err.code === 'amount_mismatch' ? botT('bot.match_amount_differs') :
               err.code === 'coa_missing' ? 'Chart of accounts missing' :
               'Transaction not found';
             await ctx.answerCallbackQuery({ text: toast });

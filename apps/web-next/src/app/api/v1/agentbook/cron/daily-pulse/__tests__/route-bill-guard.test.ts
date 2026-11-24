@@ -10,7 +10,7 @@ vi.mock('server-only', () => ({}));
 vi.mock('@/lib/logger', () => ({ reportError: vi.fn() }));
 vi.mock('@/lib/cron-auth', () => ({ requireCronSecret: () => null }));
 const cands = vi.fn(async (..._a: unknown[]): Promise<any[]> => []);
-vi.mock('@/lib/agentbook-payment-matcher', () => ({ matchTransactionWithCandidates: (...a: unknown[]) => cands(...a) }));
+vi.mock('@/lib/agentbook-payment-matcher', () => ({ matchTransactionWithCandidates: (...a: unknown[]) => cands(...a), REVIEW_THRESHOLD: 0.55 }));
 const expenseCreate = vi.fn(async (a: any) => a.data);
 const txnFindMany = vi.fn(async (_a: any): Promise<any[]> => []);
 const txnUpdate = vi.fn(async (_a: any) => ({}));
@@ -45,5 +45,10 @@ describe('daily-pulse auto-record', () => {
     cands.mockResolvedValue([{ kind: 'expense', targetId: 'e9', score: 0.4 }]);
     await GET({ headers: new Headers() } as never);
     expect(expenseCreate.mock.calls.map((c: any[]) => c[0].data.amountCents)).toEqual([8450]);
+  });
+  it('review M4: a low-score bill candidate (below the review threshold) does not hold the debit back', async () => {
+    cands.mockResolvedValue([{ kind: 'bill', targetId: 'b-unrelated', score: 0.3 }]);
+    await GET({ headers: new Headers() } as never);
+    expect(expenseCreate.mock.calls.length).toBe(1);
   });
 });
