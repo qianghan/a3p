@@ -305,5 +305,8 @@
   "you_ve_used_all_receipt_scans_this": "You've used all {p0} receipt scans this month. Upgrade for more:\n{p1}/billing",
   "ytd_tax_estimate_revenue_expenses_net_income": "🧾 <b>YTD tax estimate ({p0})</b>\n\n• Revenue: {p1}\n• Expenses: {p2}\n• Net income: {p3}\n• {p4}: {p5}\n• Income tax: {p6}\n• <b>Total: {p7}</b>",
   "candidate_joiner": " or ",
-  "and_n_more": " (and {count} more)"
+  "and_n_more": " (and {count} more)",
+  "bill_paid_from_bank": "✅ Paid {p0} to <b>{p1}</b> — the bill is paid in full.",
+  "bill_part_paid_from_bank": "✅ Paid {p0} to <b>{p1}</b>; {p2} still owing.",
+  "bill_label": "Bill"
 }

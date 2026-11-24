@@ -305,5 +305,8 @@
   "you_ve_used_all_receipt_scans_this": "Vous avez utilisé vos {p0} lectures de reçus ce mois-ci. Passez à un forfait supérieur :\n{p1}/billing",
   "ytd_tax_estimate_revenue_expenses_net_income": "🧾 <b>Estimation fiscale cumulative ({p0})</b>\n\n• Revenus : {p1}\n• Dépenses : {p2}\n• Revenu net : {p3}\n• {p4} : {p5}\n• Impôt sur le revenu : {p6}\n• <b>Total : {p7}</b>",
   "candidate_joiner": " ou ",
-  "and_n_more": " (et {count} de plus)"
+  "and_n_more": " (et {count} de plus)",
+  "bill_paid_from_bank": "✅ {p0} payé à <b>{p1}</b> — la facture est entièrement réglée.",
+  "bill_part_paid_from_bank": "✅ {p0} payé à <b>{p1}</b>; il reste {p2} à payer.",
+  "bill_label": "Facture à payer"
 }

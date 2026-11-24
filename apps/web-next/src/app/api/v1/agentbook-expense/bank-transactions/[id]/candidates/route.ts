@@ -39,7 +39,7 @@ const DEFAULT_LIMIT = 3;
 const MAX_LIMIT = 10;
 
 interface CandidateOut {
-  kind: 'invoice' | 'expense';
+  kind: 'invoice' | 'expense' | 'bill';
   targetId: string;
   label: string;
   amountCents: number;
@@ -99,6 +99,19 @@ export async function GET(
             label: `${inv.number}${inv.client?.name ? ` — ${inv.client.name}` : ''}`,
             amountCents: inv.amountCents,
             date: inv.issuedDate.toISOString(),
+            score: c.score,
+          });
+        }
+      } else if (c.kind === 'bill') {
+        // PR 3d.4 — "this is for bill X": label = vendor (+ number), amount = still owing.
+        const bill = await db.abBill.findFirst({ where: { id: c.targetId, tenantId, deletedAt: null } });
+        if (bill) {
+          hydrated.push({
+            kind: 'bill',
+            targetId: bill.id,
+            label: `${bill.vendorName}${bill.billNumber ? ` #${bill.billNumber}` : ''}`,
+            amountCents: bill.amountCents - (bill.paidCents ?? 0),
+            date: bill.dueDate.toISOString(),
             score: c.score,
           });
         }

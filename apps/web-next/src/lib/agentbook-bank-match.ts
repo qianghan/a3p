@@ -20,8 +20,9 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { PublicError } from '@/lib/api-error';
+import { payBill } from '@/lib/purchases';
 
-export type MatchSource = 'reconciliation' | 'telegram_button' | 'telegram_picker';
+export type MatchSource = 'reconciliation' | 'telegram_button' | 'telegram_picker' | 'bank_sync';
 
 export interface ApplyInvoiceMatchInput {
   tenantId: string;
@@ -59,6 +60,9 @@ export class BankMatchError extends PublicError {
       | 'txn_not_found'
       | 'invoice_not_found'
       | 'expense_not_found'
+      | 'bill_not_found'
+      | 'txn_not_debit'
+      | 'txn_already_matched'
       | 'coa_missing',
   ) {
     super(message);
@@ -242,4 +246,82 @@ export async function applyExpenseMatch(
   ]);
 
   return { ok: true, expenseId: expense.id };
+}
+
+export interface ApplyBillMatchInput {
+  tenantId: string;
+  txnId: string;
+  billId: string;
+  source: MatchSource;
+}
+
+export interface ApplyBillMatchResult {
+  billId: string;
+  paymentId: string;
+  paymentAmountCents: number;
+  remainingCents: number;
+  billPaid: boolean;
+  vendorName: string;
+}
+
+/**
+ * PR 3d.4 — apply a bank debit to an unpaid bill: records a bill payment
+ * through lib/purchases (at_entry → DR 2000 / CR 1000; legacy at_payment →
+ * DR expense / CR 1000, exactly as paying it from the Bills page) and sets
+ * `matchedBillId`. Never creates an AbExpense — the bill already carries the
+ * expense, so an expense row here is the double count this exists to stop.
+ *
+ * Amount: the debit, capped at what is still owing (a debit within the
+ * matcher's fee tolerance above it settles the bill). Idempotent on
+ * `bank:<txnId>`: a retry after a crash between the payment and the txn
+ * update replays the same payment instead of paying twice.
+ */
+export async function applyBillMatch(input: ApplyBillMatchInput): Promise<ApplyBillMatchResult> {
+  const { tenantId, txnId, billId, source } = input;
+  const txn = await db.abBankTransaction.findFirst({ where: { id: txnId, tenantId } });
+  if (!txn) throw new BankMatchError('Transaction not found', 'txn_not_found');
+  if (txn.amount <= 0) throw new BankMatchError('Only a debit can pay a bill', 'txn_not_debit');
+  // A review-state guess ('exception' + matchedExpenseId) may be overridden;
+  // a confirmed match to anything else may not. Same bill again = replay.
+  if (txn.matchStatus === 'matched' && txn.matchedBillId !== billId) {
+    throw new BankMatchError('This transaction is already matched', 'txn_already_matched');
+  }
+  const bill = await db.abBill.findFirst({ where: { id: billId, tenantId, deletedAt: null } });
+  if (!bill) throw new BankMatchError('Bill not found', 'bill_not_found');
+
+  const key = `bank:${txn.id}`;
+  const prior = await db.abBillPayment.findFirst({ where: { tenantId, billId: bill.id, idempotencyKey: key } });
+  const owing = bill.amountCents - (bill.paidCents ?? 0);
+  const amountCents = prior ? prior.amountCents : Math.min(txn.amount, owing);
+  const { bill: after, payment } = await payBill(db, tenantId, bill.id, {
+    amountCents,
+    date: prior ? (prior.date as Date) : txn.date,
+    method: 'bank',
+    idempotencyKey: key,
+  });
+
+  await db.$transaction(async (tx) => {
+    await tx.abBankTransaction.update({
+      where: { id: txn.id },
+      data: { matchedBillId: bill.id, matchedExpenseId: null, matchStatus: 'matched' },
+    });
+    await tx.abEvent.create({
+      data: {
+        tenantId,
+        eventType: 'bank.txn_matched',
+        actor: source === 'bank_sync' ? 'system' : 'user',
+        action: { transactionId: txn.id, targetType: 'bill', billId: bill.id, paymentId: payment.id, amountCents, source },
+      },
+    });
+  });
+
+  const remainingCents = Math.max(0, after.amountCents - (after.paidCents ?? 0));
+  return {
+    billId: bill.id,
+    paymentId: payment.id,
+    paymentAmountCents: payment.amountCents,
+    remainingCents,
+    billPaid: after.status === 'paid',
+    vendorName: bill.vendorName,
+  };
 }

@@ -77,7 +77,17 @@ export interface MatchableExpense {
   vendorName: string | null;
 }
 
-export type MatchKind = 'invoice' | 'expense' | 'none';
+export interface MatchableBill {
+  id: string;
+  /** What is still owing (amountCents − paidCents). */
+  outstandingCents: number;
+  billDate: Date | null;
+  dueDate: Date;
+  status: string;
+  vendorName: string | null;
+}
+
+export type MatchKind = 'invoice' | 'expense' | 'bill' | 'none';
 
 export interface MatchResult {
   kind: MatchKind;
@@ -237,6 +247,29 @@ export function scoreExpenseMatch(txn: MatchableTxn, expense: MatchableExpense):
   return AMOUNT_WEIGHT * as + DATE_WEIGHT * ds + NAME_WEIGHT * ns;
 }
 
+/**
+ * PR 3d.4 — score a bank debit against an unpaid bill (accounts payable).
+ * Amount must be within tolerance of what is still owing. A bill is paid any
+ * time from entry to a little after its due date, so the date factor is 1.0
+ * inside [billDate − 3d, dueDate + 3d] and decays outside it (the gate stays
+ * DATE_WINDOW_DAYS past either edge). The vendor name weighs more than for
+ * expenses because bill amounts (rent, utilities) repeat.
+ */
+export function scoreBillMatch(txn: MatchableTxn, bill: MatchableBill): number {
+  if (txn.amountCents <= 0) return 0;
+  if (bill.status !== 'open' && bill.status !== 'partial') return 0;
+  if (bill.outstandingCents <= 0) return 0;
+  if (!withinAmountTolerance(txn.amountCents, bill.outstandingCents)) return 0;
+  const from = (bill.billDate ?? bill.dueDate).getTime() - DATE_WINDOW_DAYS * ONE_DAY_MS;
+  const to = bill.dueDate.getTime() + DATE_WINDOW_DAYS * ONE_DAY_MS;
+  const t = txn.date.getTime();
+  const ds = t >= from && t <= to ? 1 : dateScore(txn.date, new Date(t < from ? from : to));
+  if (ds === 0) return 0;
+  const as = amountScore(txn.amountCents, bill.outstandingCents);
+  const ns = nameScore(`${txn.merchantName || ''} ${txn.name}`, bill.vendorName);
+  return AMOUNT_WEIGHT * as + DATE_WEIGHT * ds + NAME_WEIGHT * ns;
+}
+
 // === DB-coupled orchestrator ===
 
 /**
@@ -343,6 +376,34 @@ export async function matchTransactionWithCandidates(
       take: 20,
     });
 
+    // PR 3d.4: unpaid bills are candidates for a debit too — paying a bill is
+    // an AP payment, never a new expense. Outstanding is computed in JS
+    // (Prisma cannot filter on amountCents − paidCents).
+    const billRows = await db.abBill.findMany({
+      where: {
+        tenantId,
+        deletedAt: null,
+        status: { in: ['open', 'partial'] },
+        amountCents: { gte: txn.amountCents - tol },
+        dueDate: { gte: new Date(windowStart.getTime() - 120 * ONE_DAY_MS) },
+      },
+      take: 50,
+    });
+    const billScored = billRows
+      .map<MatchResult>((b) => ({
+        kind: 'bill' as const,
+        targetId: b.id,
+        score: scoreBillMatch(txn, {
+          id: b.id,
+          outstandingCents: b.amountCents - (b.paidCents ?? 0),
+          billDate: b.billDate ?? null,
+          dueDate: b.dueDate,
+          status: b.status,
+          vendorName: b.vendorName,
+        }),
+      }))
+      .filter((r) => r.score > 0);
+
     const scored = candidates
       .filter((exp) => !alreadyMatchedIds.has(exp.id))  // PR 49: no double-attribution
       .map<MatchResult>((exp) => ({
@@ -357,7 +418,9 @@ export async function matchTransactionWithCandidates(
         }),
       }))
       .filter((r) => r.score > 0)
-      .sort((a, b) => b.score - a.score)
+      .concat(billScored)
+      // Ties go to the bill: an expense row is the double-count risk.
+      .sort((a, b) => b.score - a.score || (a.kind === 'bill' ? -1 : b.kind === 'bill' ? 1 : 0))
       .slice(0, Math.max(1, limit));
     return scored;
   }
