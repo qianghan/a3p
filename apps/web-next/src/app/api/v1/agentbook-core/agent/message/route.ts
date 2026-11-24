@@ -47,6 +47,8 @@ interface AgentMessageBody {
   // sessionId is captured client-side for debugging but the server resolves
   // the active session by tenantId — see handleAgentMessage Step 1.
   sessionId?: string;
+  /** PR 3d re-review N3: optional per-send id from the client. */
+  clientMessageId?: unknown;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -159,6 +161,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         attachments: body.attachments,
         sessionAction: body.sessionAction,
         feedback: body.feedback,
+        // PR 3d re-review N3: optional per-send id (shape-checked; anything else is ignored).
+        ...(typeof body.clientMessageId === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(body.clientMessageId)
+          ? { clientMessageId: body.clientMessageId } : {}),
       },
       {
         skills,

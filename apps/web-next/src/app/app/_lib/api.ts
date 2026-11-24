@@ -504,6 +504,13 @@ function toChatReply(d: RawBrainData | undefined | null): ChatReply {
   return reply;
 }
 
+/** A per-send id (uuid) for agent/message; the server keys money writes (pay-bill) on it. */
+export function newClientMessageId(): string {
+  const c = (globalThis as { crypto?: Crypto }).crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  return `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+}
+
 /**
  * POST agent/message (channel 'web'). Session actions are exempt from the
  * server's rate limit, so Proceed/Cancel still work at the ceiling. A 429
@@ -514,10 +521,12 @@ export async function sendChat(p: {
   text?: string;
   sessionAction?: 'confirm' | 'cancel' | 'skip' | 'undo' | 'status';
   attachments?: { type: 'photo'; url: string }[];
+  /** PR 3d re-review N3: one id per send; pass the same id to retry THAT send. Minted if absent. */
+  clientMessageId?: string;
 }): Promise<ChatReply> {
   const text = p.text?.trim();
   if (!text && !p.sessionAction) throw new ApiError('invalid_request', 400, 'invalid_request');
-  const body: Record<string, unknown> = {};
+  const body: Record<string, unknown> = { clientMessageId: p.clientMessageId ?? newClientMessageId() };
   if (text) body.text = text;
   if (p.sessionAction) body.sessionAction = p.sessionAction;
   if (p.attachments && p.attachments.length > 0) body.attachments = p.attachments;

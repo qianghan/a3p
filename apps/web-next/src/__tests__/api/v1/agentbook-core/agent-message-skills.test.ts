@@ -237,3 +237,19 @@ describe('web chat skill fetch — the admin disable toggle wins', () => {
     expect(skillsPassedToBrain().some((s) => s.name === 'tenant-custom' && s.enabled)).toBe(false);
   });
 });
+
+describe('PR 3d re-review N3 — clientMessageId', () => {
+  const post = (body: Record<string, unknown>) => POST(new NextRequest('http://x/api/v1/agentbook-core/agent/message', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  }));
+  it('a well-formed id is handed to the brain', async () => {
+    await post({ text: 'pay the hydro bill', clientMessageId: 'a1b2c3d4-e5f6' });
+    expect(handleAgentMessage.mock.calls.at(-1)?.[0]).toMatchObject({ clientMessageId: 'a1b2c3d4-e5f6' });
+  });
+  it('a malformed or missing id is dropped', async () => {
+    await post({ text: 'pay the hydro bill', clientMessageId: 'bad id!' });
+    expect(handleAgentMessage.mock.calls.at(-1)?.[0]).not.toHaveProperty('clientMessageId');
+    await post({ text: 'pay the hydro bill' });
+    expect(handleAgentMessage.mock.calls.at(-1)?.[0]).not.toHaveProperty('clientMessageId');
+  });
+});

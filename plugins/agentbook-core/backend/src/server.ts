@@ -3121,6 +3121,8 @@ export interface ClassificationResult {
   tenantConfig: any;
   // For tracing
   reasoning?: string;
+  /** PR 3d re-review N3: the client's id for this send (agent/message body). */
+  clientMessageId?: string;
 }
 
 /**
@@ -4744,10 +4746,13 @@ async function _executeClassificationCore(
         }
         const r = await fetch(`${expenseBase}/api/v1/agentbook-expense/bills/${encodeURIComponent(bill.id)}?action=pay`, {
           method: 'POST', headers: H,
-          // Review M3: per request — the same sentence later in the day is a
-          // second real payment, not a replay. (Channel redelivery is deduped
-          // upstream by the adapters; the route's overpayment guard caps it.)
-          body: JSON.stringify({ ...(amountCents ? { amountCents } : {}), idempotencyKey: `chat-pay:${bill.id}:${crypto.randomUUID()}` }),
+          // Review M3 / re-review N3: keyed on the client's message id when it
+          // sent one (the /app client sends one per send, so a resend of the
+          // same send replays); otherwise per request — the same sentence later
+          // is a real second payment. Only Telegram dedupes redelivery itself
+          // (tg_update:<id> claim in the webhook); web/API/MCP without an id
+          // are capped only by the route's overpayment guard.
+          body: JSON.stringify({ ...(amountCents ? { amountCents } : {}), idempotencyKey: `chat-pay:${bill.id}:${classification.clientMessageId ?? crypto.randomUUID()}` }),
         });
         const j = await r.json() as { success?: boolean; data?: any; payment?: any; code?: string };
         if (!r.ok || !j.success) {

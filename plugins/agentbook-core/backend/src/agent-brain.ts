@@ -311,6 +311,8 @@ interface AgentRequest {
   attachments?: { type: string; url: string }[];
   sessionAction?: string;
   feedback?: string;
+  /** PR 3d re-review N3: one id per client send; skills that write money key on it. */
+  clientMessageId?: string;
 }
 
 interface AgentContext {
@@ -1172,8 +1174,13 @@ async function handleTaxDraftRegenerate(
  */
 export async function handleAgentMessage(
   req: AgentRequest,
-  ctx: AgentContext,
+  ctxIn: AgentContext,
 ): Promise<AgentResponse> {
+  // PR 3d re-review N3: every execution of this turn carries the client's
+  // message id, whichever path (simple, plan step, correction) runs it.
+  const ctx: AgentContext = req.clientMessageId
+    ? { ...ctxIn, executeClassification: ((c: any, ...rest: any[]) => (ctxIn.executeClassification as any)({ ...c, clientMessageId: req.clientMessageId }, ...rest)) as AgentContext['executeClassification'] }
+    : ctxIn;
   // PR 4e — a TFN/SIN/SSN (or bank/member number) typed into chat is refused
   // BEFORE anything sees it: no classification, no LLM call, no session, no
   // memory. The one AbConversation row written stores the redacted text.

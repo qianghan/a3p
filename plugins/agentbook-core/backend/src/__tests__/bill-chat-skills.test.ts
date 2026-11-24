@@ -127,6 +127,15 @@ describe('pay-bill', () => {
     expect(keys).toHaveLength(2);
     expect(keys[0]).not.toBe(keys[1]);
   });
+  it('re-review N3: with a client message id the pay key is derived from it (a resend of the same send replays)', async () => {
+    routes['GET http://localhost:4051/api/v1/agentbook-expense/bills?status=all'] = list([STAPLES]);
+    routes['POST http://localhost:4051/api/v1/agentbook-expense/bills/b2?action=pay'] = (c) => ({ success: true, data: { ...STAPLES, paidCents: 8000, status: 'partial' }, payment: { id: 'p', amountCents: c.body.amountCents } });
+    const withId = { ...cls('pay-bill'), clientMessageId: 'msg-123456789' };
+    await executeClassification(withId, 'Paid $50 on the Staples bill', 't1', 'web');
+    await executeClassification(withId, 'Paid $50 on the Staples bill', 't1', 'web');
+    const keys = calls.filter((c) => c.method === 'POST').map((c) => c.body.idempotencyKey);
+    expect(keys).toEqual(['chat-pay:b2:msg-123456789', 'chat-pay:b2:msg-123456789']);
+  });
   it('review M3: a 409 payment_voided gets its own message, not "couldn’t load your bills"', async () => {
     routes['GET http://localhost:4051/api/v1/agentbook-expense/bills?status=all'] = list([STAPLES]);
     routes['POST http://localhost:4051/api/v1/agentbook-expense/bills/b2?action=pay'] = () => ({ success: false, code: 'payment_voided' });
