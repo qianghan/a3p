@@ -80,11 +80,11 @@ const NEW_SKILLS: Array<[string, string]> = [
   ["Could you set Jane's rate to $60k?", 'update-employee'],
   ['Can you set up the next pay runs?', 'generate-pay-run-drafts'],
   ['Generate draft pay runs?', 'generate-pay-run-drafts'],
-  // manage-bills (bills / payables)
-  ['What bills are due this week?', 'manage-bills'],
-  ['Which bills are due?', 'manage-bills'],
-  ['What is my accounts payable?', 'manage-bills'],
-  ['Any overdue bills?', 'manage-bills'],
+  // query-payables (bills / payables; PR 3d moved these off manage-bills)
+  ['What bills are due this week?', 'query-payables'],
+  ['Which bills are due?', 'query-payables'],
+  ['What is my accounts payable?', 'query-payables'],
+  ['Any overdue bills?', 'query-payables'],
   // record-expense with tax-inclusive amounts
   ['Bought a printer $113 incl GST', 'record-expense'],
   ['Staples $56.50 incl HST', 'record-expense'],

@@ -288,3 +288,16 @@ describe('sw.js queue owner (asks /auth/me once per pass)', () => {
     expect(await q.pendingCount()).toBe(0);
   });
 });
+
+describe('sw.js expense-queue replay — PR 3d.2 "Pay later" bills', () => {
+  it('a queued bill record goes to /bills with its key (header + body), the same request the page sends', async () => {
+    const q = await import('@/lib/offline-queue');
+    await q.queueBill({ vendorName: 'Hydro', amountCents: 8450, dueDate: '2026-12-15' }, 'k-bill-1');
+    await loadSw(server.fetchImpl, idb).sync('agentbook-expense-sync');
+    const [url, init] = server.fetchImpl.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST') as [string, RequestInit];
+    expect(url).toBe('/api/v1/agentbook-expense/bills');
+    expect((init.headers as Record<string, string>)['Idempotency-Key']).toBe('k-bill-1');
+    expect(JSON.parse(init.body as string)).toEqual({ vendorName: 'Hydro', amountCents: 8450, dueDate: '2026-12-15', idempotencyKey: 'k-bill-1' });
+    expect(await q.pendingCount()).toBe(0);
+  });
+});

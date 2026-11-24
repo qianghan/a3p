@@ -37,7 +37,7 @@ describe('sendChat', () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, BRAIN_REPLY));
     const reply = await sendChat({ text: 'spent 12 on coffee and 40 on taxi' });
     expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v1/agentbook-core/agent/message');
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ text: 'spent 12 on coffee and 40 on taxi' });
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ text: 'spent 12 on coffee and 40 on taxi', clientMessageId: expect.stringMatching(/^[A-Za-z0-9_-]{8,128}$/) });
     expect(reply).toEqual({
       message: 'I can record 3 expenses. Proceed?',
       plan: {
@@ -56,7 +56,7 @@ describe('sendChat', () => {
   it('sends a session action with no text (Proceed / Cancel)', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { success: true, data: { message: 'Done — 2 recorded.' } }));
     const reply = await sendChat({ sessionAction: 'confirm' });
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ sessionAction: 'confirm' });
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ sessionAction: 'confirm', clientMessageId: expect.stringMatching(/^[A-Za-z0-9_-]{8,128}$/) });
     expect(reply).toEqual({ message: 'Done — 2 recorded.' });
   });
 
@@ -159,5 +159,17 @@ describe('loadChatHistory', () => {
   it('a failing thread list rejects (the screen shows its error state, not an empty chat)', async () => {
     routeFetch({ '/api/v1/agentbook-core/threads?': () => jsonResponse(500, { success: false, error: 'x' }) });
     await expect(loadChatHistory()).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe('PR 3d re-review N3 — one clientMessageId per send', () => {
+  it('two sends carry different ids; a retry passing the same id resends it', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, BRAIN_REPLY));
+    await sendChat({ text: 'pay the hydro bill' });
+    await sendChat({ text: 'pay the hydro bill' });
+    await sendChat({ text: 'pay the hydro bill', clientMessageId: 'retry-id-1234' });
+    const ids = fetchMock.mock.calls.map((c) => JSON.parse(String((c[1] as RequestInit).body)).clientMessageId);
+    expect(ids[0]).not.toBe(ids[1]);
+    expect(ids[2]).toBe('retry-id-1234');
   });
 });

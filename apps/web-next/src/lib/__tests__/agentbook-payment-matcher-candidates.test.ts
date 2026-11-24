@@ -18,11 +18,13 @@ vi.mock('server-only', () => ({}));
 const mockInvoiceFindMany = vi.fn();
 const mockExpenseFindMany = vi.fn();
 const mockBankTxnFindMany = vi.fn();
+const mockBillFindMany = vi.fn(async () => [] as unknown[]);
 vi.mock('@naap/database', () => ({
   prisma: {
     abInvoice: { findMany: (...args: unknown[]) => mockInvoiceFindMany(...args) },
     abExpense: { findMany: (...args: unknown[]) => mockExpenseFindMany(...args) },
     abBankTransaction: { findMany: (...args: unknown[]) => mockBankTxnFindMany(...args) },
+    abBill: { findMany: (...args: unknown[]) => (mockBillFindMany as any)(...args) },
   },
 }));
 
@@ -211,5 +213,28 @@ describe('matchTransaction — single-best wrapper', () => {
     const result = await matchTransaction('tenant', outflow());
     expect(result.kind).toBe('expense');
     expect(result.targetId).toBe('exp-1');
+  });
+});
+
+describe('PR 3d.4 — bill candidates for a debit', () => {
+  it('an open bill for the same amount/vendor outranks (or ties above) the expense; paid-down bills use what is owing', async () => {
+    mockBankTxnFindMany.mockResolvedValue([]);
+    mockExpenseFindMany.mockResolvedValue([expRow({ id: 'exp-1', date: today })]);
+    mockBillFindMany.mockResolvedValue([
+      { id: 'bill-1', vendorName: 'Blue Bottle', amountCents: 4500, paidCents: 0, status: 'open', billDate: dayBefore, dueDate: new Date('2026-06-10T00:00:00Z') },
+      { id: 'bill-2', vendorName: 'Blue Bottle', amountCents: 9000, paidCents: 4500, status: 'partial', billDate: dayBefore, dueDate: new Date('2026-06-10T00:00:00Z') },
+      { id: 'bill-3', vendorName: 'Blue Bottle', amountCents: 9000, paidCents: 0, status: 'open', billDate: dayBefore, dueDate: new Date('2026-06-10T00:00:00Z') },
+    ]);
+    const out = await matchTransactionWithCandidates('t1', outflow(), 5);
+    expect(out.slice(0, 2).map((r) => r.kind)).toEqual(['bill', 'bill']);
+    expect(out.map((r) => r.targetId).sort()).toEqual(['bill-1', 'bill-2', 'exp-1']);
+    const where = (mockBillFindMany.mock.calls[0] as any[])[0].where;
+    expect([where.tenantId, where.deletedAt, where.status]).toEqual(['t1', null, { in: ['open', 'partial'] }]);
+  });
+  it('an inflow never proposes a bill', async () => {
+    mockInvoiceFindMany.mockResolvedValue([]);
+    mockBillFindMany.mockClear();
+    await matchTransactionWithCandidates('t1', inflow(), 3);
+    expect(mockBillFindMany).not.toHaveBeenCalled();
   });
 });

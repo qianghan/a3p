@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { reportError } from '@/lib/logger';
 import { requireCronSecret } from '@/lib/cron-auth';
+import { matchTransactionWithCandidates, REVIEW_THRESHOLD } from '@/lib/agentbook-payment-matcher';
 
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       // Auto-record bank transactions (Zero-Input Bookkeeping)
       const bankTxns = await db.abBankTransaction.findMany({
-        where: { tenantId: tenant.userId, matchStatus: 'pending', pending: false },
+        where: { tenantId: tenant.userId, matchStatus: 'pending', pending: false, matchedBillId: null },
         take: 50,
       });
 
@@ -68,7 +69,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           where: { tenantId: tenant.userId, vendorPattern: normalizedMerchant },
         });
 
+        // PR 3d.4: a debit that could be paying an open bill is never
+        // auto-recorded as an expense (the bill already carries the expense);
+        // it waits for the bill match / the user's one-tap "this is for bill X".
         if (pattern && pattern.confidence >= 0.9 && tx.amount > 0) {
+          const cands = await matchTransactionWithCandidates(tenant.userId, {
+            id: tx.id, amountCents: tx.amount, date: new Date(tx.date), name: tx.name, merchantName: tx.merchantName,
+          }, 5);
+          // Review M4: only a real proposal (≥ the review threshold) holds the debit back.
+          if (cands.some((c) => c.kind === 'bill' && c.score >= REVIEW_THRESHOLD)) continue;
           // Auto-record silently
           await db.abExpense.create({
             data: {

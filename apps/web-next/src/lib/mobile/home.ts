@@ -119,7 +119,7 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
     uncategorized,
     needsReview,
     suggestions,
-    dueBill,
+    dueBills,
     recent,
   ] = await Promise.all([
     getCashTodayCents(tenantId),
@@ -132,9 +132,12 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
     db.abExpense.count({ where: docFilterWhere(tenantId, 'no-category') }),
     db.abExpense.count({ where: docFilterWhere(tenantId, 'needs-review') }),
     freshSuggestionCount(tenantId),
-    db.abBill.findFirst({
+    // PR 3d.2: every unpaid (open | partial) bill due inside the window, so
+    // the alert can say "N bills due" with what is still owing on them.
+    db.abBill.findMany({
       where: { tenantId, ...unpaidBillWhere(), dueDate: { lte: new Date(now.getTime() + BILL_ALERT_DAYS * DAY_MS) } },
       orderBy: { dueDate: 'asc' },
+      take: 50,
     }),
     recentActivity(tenantId),
   ]);
@@ -181,13 +184,19 @@ export async function buildMobileHome(tenantId: string, now: Date = new Date()):
     });
   }
 
+  const dueBill = dueBills[0];
   if (dueBill) {
+    // Earliest bill drives the days/severity; amount is the total still
+    // owing across all of them (partial bills count only their remainder).
     const days = daysBetweenUtc(now, dueBill.dueDate);
+    const totalCents = dueBills.reduce((s, b) => s + outstandingCents(b), 0);
     candidates.push({
-      id: `bill_due:${dueBill.id}`,
+      id: dueBills.length > 1 ? 'bill_due:many' : `bill_due:${dueBill.id}`,
       kind: 'bill_due',
       severity: days < 0 ? 'critical' : 'warn',
-      params: { vendor: dueBill.vendorName, days, amountCents: outstandingCents(dueBill) },
+      params: dueBills.length > 1
+        ? { vendor: dueBill.vendorName, days, amountCents: totalCents, count: dueBills.length }
+        : { vendor: dueBill.vendorName, days, amountCents: totalCents },
       target: { route: '/app/chat', query: { topic: 'bill_due' } },
     });
   }

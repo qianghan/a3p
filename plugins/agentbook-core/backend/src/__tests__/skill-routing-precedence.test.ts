@@ -52,10 +52,14 @@ describe('a tax question is not accounts payable', () => {
     expect(matches('manage-bills', q)).toBe(false);
   });
 
-  it('manage-bills still handles genuine payables', () => {
-    expect(matches('manage-bills', 'what bills are due this week?')).toBe(true);
-    expect(matches('manage-bills', 'what do I owe my suppliers?')).toBe(true);
-    expect(matches('manage-bills', 'record a bill from Acme for rent')).toBe(true);
+  // PR 3d: genuine payables moved to query-payables / record-bill (manage-bills
+  // keeps its manifest with no triggers and delegates). The tax carve-out
+  // must hold for the new skills too.
+  it('query-payables / record-bill handle genuine payables, never the tax question', () => {
+    expect(matches('query-payables', 'what bills are due this week?')).toBe(true);
+    expect(matches('query-payables', 'what do I owe my suppliers?')).toBe(true);
+    expect(matches('record-bill', 'record a bill from Acme for rent')).toBe(true);
+    for (const n of ['query-payables', 'record-bill', 'pay-bill']) expect(matches(n, q)).toBe(false);
   });
 });
 

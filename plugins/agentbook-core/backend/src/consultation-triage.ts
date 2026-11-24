@@ -165,13 +165,22 @@ const DATA_QUESTION = [
 
   // Bills / payables. "What bills are due this week?" — the phrasing
   // manage-bills' own description promises — opened "What" and ended "?".
-  /\bbills?\b[^.?!]{0,30}\bdue\b|\boverdue bills?\b|\baccounts payable\b/i,
+  // PR 3d.3 widened to the record-bill / pay-bill / query-payables phrasings
+  // (en / fr-CA / zh-CN) — mirrors RECORD_BILL_PATTERN, PAY_BILL_PATTERN and
+  // QUERY_PAYABLES_PATTERN in bill-chat.ts. "accounts payable" needs a
+  // possessive or a figure word: "What is accounts payable?" is a definition.
+  /\bbills?\b[^.?!]{0,30}\bdue\b|\b(?:overdue|open|unpaid|upcoming|outstanding) bills?\b|\b(?:my|our) (?:accounts payable|payables)\b|\baccounts payable (?:balance|total|aging)\b|\bap aging\b|\bwho do (?:i|we) owe\b/i,
+  /\b(?:pay|paid|settle|record|add|enter|log)\b[^.?!]{0,30}\bbills?\b|\bbill from\b|\bpay later\b/i,
+  /factures? (?:de |d['’])?(?:fournisseurs?|[àa] payer|impay[ée]es|en retard)|comptes (?:fournisseurs|cr[ée]diteurs)|je dois[^.?!]{0,30}fournisseurs?|payer plus tard|\bcombien (?:est-ce que )?je dois\b|qu['’]est-ce que je dois(?:\s*\?|\s+(?:ce|cette|aux?|à)\b)|\bloyer\b[^.?!]{0,20}\bd[ûu](?![a-z])/i,
+  // Review I3: 我欠多少 / 我欠谁 (what I owe) — 欠我 is receivables, above.
+  /我欠(?:多少|谁|哪些)|房租[^。？?]{0,8}(?:到期|该交|要交)/,
+  /待付账单|未付账单|账单[^。？?]{0,8}(?:到期|逾期|已付|付清)|逾期账单|(?:支付|付清|结清|记录|添加)[^。？?]{0,14}账单/,
 
   // Pay-run drafts (PR 4e) and polite imperatives. "Can you change Jane to
   // weekly?" is an instruction, not a question about rules; only an action
   // verb after "can you" counts, so "can you explain GST?" stays advisory.
   /\b(?:draft|next) pay ?runs?\b/i,
-  /^\s*(?:can|could|would|will) you (?:please )?(?:change|set|switch|update|record|log|add|create|send|generate|prepare|draft|run|mark|delete|categori[sz]e)\b/i,
+  /^\s*(?:can|could|would|will) you (?:please )?(?:change|set|switch|update|record|log|add|create|send|generate|prepare|draft|run|mark|delete|categori[sz]e|pay)\b/i,
 
   // ── Chinese ───────────────────────────────────────────────────────────
   // Without these, EVERY Chinese question reached the `[?？]$` catch below

@@ -3,7 +3,8 @@
  * Every financial action produces a balanced journal entry.
  * The constraint engine is code, not LLM prompts.
  */
-import { loadUnpaidBills, outstandingCents, summarizeUnpaidBills, type BillAmountLike } from './bill-amounts.js';
+import { isUnpaid, loadUnpaidBills, summarizeUnpaidBills } from './bill-amounts.js';
+import { agingBucket, chooseBillToPay, outstanding, parseBillAmount, parseBillVendor, parseDueDate, type OpenBillLike } from './bill-chat.js';
 import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase.js';
 import { runRestatementSkill } from './restatement-chat.js';
 import 'dotenv/config';
@@ -3121,6 +3122,8 @@ export interface ClassificationResult {
   tenantConfig: any;
   // For tracing
   reasoning?: string;
+  /** PR 3d re-review N3: the client's id for this send (agent/message body). */
+  clientMessageId?: string;
 }
 
 /**
@@ -4673,38 +4676,123 @@ async function _executeClassificationCore(
     }
   }
 
-  // INTERNAL handler: manage-bills — accounts payable via direct DB
-  if (selectedSkill.name === 'manage-bills') {
+  // INTERNAL handlers: record-bill / pay-bill / query-payables (PR 3d.3).
+  // All writes go through the Next bills routes (→ lib/purchases: AP at
+  // entry for accrual tenants, DR 2000 / CR 1000 payments, idempotent). The
+  // manage-bills manifest is kept; its handler delegates here.
+  if (['record-bill', 'pay-bill', 'query-payables', 'manage-bills'].includes(selectedSkill.name)) {
+    const asked = selectedSkill.name;
+    const skill = asked === 'manage-bills'
+      ? (String(extractedParams.action || 'list').toLowerCase() === 'create' ? 'record-bill' : 'query-payables')
+      : asked;
+    const fmt = (c: number) => tenantMoneyCompact(c);
+    const day = (d: Date | string) => new Date(d).toLocaleDateString(replyLocale, { timeZone: 'UTC' });
+    const expenseBase = baseUrls['/api/v1/agentbook-expense'] || 'http://localhost:4051';
+    const taxBase = baseUrls['/api/v1/agentbook-tax'] || 'http://localhost:4053';
+    const H = brainHeaders(tenantId);
+    const today = new Date().toISOString().slice(0, 10);
+    const keyOf = (scope: string) => `chat-${scope}:${crypto.createHash('sha256').update(`${tenantId}\u0000${text}`).digest('hex').slice(0, 24)}:${today}`;
+    const reply = async (message: string, data: unknown, conf = confidence) => {
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: asked } }).catch(() => {});
+      return { selectedSkill, extractedParams, confidence: conf, skillUsed: asked, skillResponse: { data }, responseData: { message, actions: [], chartData: null, skillUsed: asked, confidence: conf, latencyMs: Date.now() - startTime } };
+    };
+    const listOpenBills = async (): Promise<OpenBillLike[]> => {
+      const r = await fetch(`${expenseBase}/api/v1/agentbook-expense/bills?status=all`, { headers: H });
+      const j = await r.json() as { success?: boolean; data?: OpenBillLike[] };
+      if (!r.ok || !j.success) throw new Error(`bills GET ${r.status}`);
+      return (j.data ?? []).filter((b) => isUnpaid(b as Parameters<typeof isUnpaid>[0]));
+    };
     try {
-      const fmt = (c: number) => tenantMoneyCompact(c);
-      const action = String(extractedParams.action || 'list').toLowerCase();
-      if (action === 'create' && extractedParams.vendorName && extractedParams.amountCents) {
-        const due = extractedParams.dueDate ? new Date(extractedParams.dueDate as string) : new Date(Date.now() + 14 * 86400000);
-        const bill = await db.abBill.create({ data: { tenantId, vendorName: String(extractedParams.vendorName), amountCents: Number(extractedParams.amountCents), dueDate: isNaN(due.getTime()) ? new Date(Date.now() + 14 * 86400000) : due, status: 'open' } });
-        const message = t('skill.bill_recorded', {
-          vendor: bill.vendorName,
-          amount: fmt(bill.amountCents),
-          date: new Date(bill.dueDate).toLocaleDateString(replyLocale),
+      if (skill === 'record-bill') {
+        const vendorName = String(extractedParams.vendorName || '').trim() || parseBillVendor(text);
+        const amountCents = Number(extractedParams.amountCents) > 0 ? Math.round(Number(extractedParams.amountCents)) : parseBillAmount(text, parseAmountCents);
+        if (!vendorName || !amountCents || amountCents <= 0) return await reply(t('skill.bill_need_details'), null, 0.5);
+        const stated = extractedParams.dueDate ? new Date(String(extractedParams.dueDate)) : parseDueDate(text);
+        const assumed = !stated || isNaN(stated.getTime());
+        const due = assumed ? new Date(Date.now() + 14 * 86_400_000) : stated!;
+        const r = await fetch(`${expenseBase}/api/v1/agentbook-expense/bills`, {
+          method: 'POST', headers: H,
+          body: JSON.stringify({ vendorName, amountCents, dueDate: due.toISOString().slice(0, 10), idempotencyKey: keyOf('bill') }),
         });
-        await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
-        return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bill }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
+        const j = await r.json() as { success?: boolean; data?: any; code?: string };
+        if (!r.ok || !j.success) {
+          return await reply(j.code === 'period_closed' ? t('skill.bill_period_closed') : t('skill.bills_load_failed'), null, 0);
+        }
+        let message = t('skill.bill_recorded', { vendor: j.data.vendorName, amount: fmt(j.data.amountCents), date: day(j.data.dueDate) });
+        if (assumed) message += ` ${t('skill.bill_due_assumed', { date: day(j.data.dueDate) })}`;
+        return await reply(message, j.data);
       }
-      // Unpaid = open | partial, live; amounts are OUTSTANDING (bill-amounts.ts).
-      const bills = await loadUnpaidBills(db, tenantId);
+
+      if (skill === 'pay-bill') {
+        const open = await listOpenBills();
+        const hits = chooseBillToPay(text, open);
+        const amountCents = Number(extractedParams.amountCents) > 0 ? Math.round(Number(extractedParams.amountCents)) : parseBillAmount(text, parseAmountCents);
+        if (hits.length === 0) {
+          // No open bill matches: a paid-with-amount statement is an ordinary
+          // expense (what this phrasing recorded before PR 3d).
+          const expenseSkill = (classification.skills || []).find((s: any) => s.name === 'record-expense') ?? BUILT_IN_SKILLS.find((s) => s.name === 'record-expense');
+          if (amountCents && expenseSkill) {
+            return _executeClassificationCore({ ...classification, selectedSkill: expenseSkill as any, extractedParams: { amountCents, vendor: parseBillVendor(text) ?? undefined, description: text } }, text, tenantId, channel, attachments);
+          }
+          return await reply(open.length ? t('skill.bill_pay_not_found_open', { list: open.slice(0, 8).map((b) => `**${b.vendorName}** ${fmt(outstanding(b))}`).join(', ') }) : t('skill.bills_none_open', { page: PAGE_BILLS }), null, 0.5);
+        }
+        if (hits.length > 1) {
+          const list = hits.slice(0, 8).map((b) => `**${b.vendorName}** — ${fmt(outstanding(b))} ${t('skill.bill_due_on', { date: day(b.dueDate) })}`).join('\n');
+          return await reply(`${t('skill.bill_pay_which')}\n\n${list}`, hits, 0.5);
+        }
+        const bill = hits[0];
+        const owing = outstanding(bill);
+        if (amountCents && amountCents > owing) {
+          return await reply(t('skill.bill_overpay', { vendor: bill.vendorName, remaining: fmt(owing) }), null, 0.5);
+        }
+        const r = await fetch(`${expenseBase}/api/v1/agentbook-expense/bills/${encodeURIComponent(bill.id)}?action=pay`, {
+          method: 'POST', headers: H,
+          // Review M3 / re-review N3: keyed on the client's message id when it
+          // sent one (the /app client sends one per send, so a resend of the
+          // same send replays); otherwise per request — the same sentence later
+          // is a real second payment. Only Telegram dedupes redelivery itself
+          // (tg_update:<id> claim in the webhook); web/API/MCP without an id
+          // are capped only by the route's overpayment guard.
+          body: JSON.stringify({ ...(amountCents ? { amountCents } : {}), idempotencyKey: `chat-pay:${bill.id}:${classification.clientMessageId ?? crypto.randomUUID()}` }),
+        });
+        const j = await r.json() as { success?: boolean; data?: any; payment?: any; code?: string };
+        if (!r.ok || !j.success) {
+          const why = j.code === 'period_closed' ? t('skill.bill_period_closed')
+            : j.code === 'payment_voided' ? t('skill.bill_payment_voided')
+              : j.code === 'overpayment' ? t('skill.bill_overpay', { vendor: bill.vendorName, remaining: fmt(owing) })
+                : t('skill.bills_load_failed');
+          return await reply(why, null, 0);
+        }
+        const paid = j.payment?.amountCents ?? (amountCents || owing);
+        const left = Math.max(0, j.data.amountCents - (j.data.paidCents ?? 0));
+        const message = left > 0
+          ? t('skill.bill_part_paid', { vendor: j.data.vendorName, amount: fmt(paid), remaining: fmt(left) })
+          : t('skill.bill_paid', { vendor: j.data.vendorName, amount: fmt(paid) });
+        return await reply(message, { bill: j.data, payment: j.payment });
+      }
+
+      // query-payables
+      const [open, agingRes] = await Promise.all([
+        listOpenBills(),
+        fetch(`${taxBase}/api/v1/agentbook-tax/reports/ap-aging`, { headers: H }).then((r) => r.json() as Promise<any>).catch(() => null),
+      ]);
+      if (open.length === 0) return await reply(t('skill.bills_none_open', { page: PAGE_BILLS }), { bills: [] });
       const now = new Date();
-      const { openCents, overdue } = summarizeUnpaidBills(bills, now);
-      let message: string;
-      if (bills.length === 0) {
-        message = t('skill.bills_none_open', { page: PAGE_BILLS });
+      const total = open.reduce((s, b) => s + outstanding(b), 0);
+      const overdue = open.filter((b) => new Date(b.dueDate) < now);
+      const buckets: Record<string, number> = { current: 0, d1_30: 0, d31_60: 0, d60_plus: 0 };
+      if (agingRes?.success && agingRes.data?.buckets) {
+        for (const k of Object.keys(buckets)) buckets[k] = Number(agingRes.data.buckets[k]?.totalCents ?? 0);
       } else {
-        const list = bills.slice(0, 8).map((b: BillAmountLike & { dueDate: Date; vendorName: string }) => `${b.dueDate < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(outstandingCents(b))} due ${new Date(b.dueDate).toLocaleDateString(replyLocale)}`).join('\n');
-        message = `${t('skill.bills_open', { amount: fmt(openCents), count: bills.length })}${overdue.length ? ` (${overdue.length} overdue)` : ''}:\n\n${list}`;
+        for (const b of open) buckets[agingBucket(new Date(b.dueDate), now)] += outstanding(b);
       }
-      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: 'manage-bills' } });
-      return { selectedSkill, extractedParams, confidence, skillUsed: 'manage-bills', skillResponse: { data: bills }, responseData: { message, actions: [], chartData: null, skillUsed: 'manage-bills', confidence, latencyMs: Date.now() - startTime } };
+      const list = open.slice(0, 8).map((b) => `${new Date(b.dueDate) < now ? '🔴' : '🟡'} **${b.vendorName}** — ${fmt(outstanding(b))} ${t('skill.bill_due_on', { date: day(b.dueDate) })}`).join('\n');
+      const head = t('skill.bills_open', { amount: fmt(total), count: open.length }) + (overdue.length ? ` ${t('skill.bills_overdue_suffix', { count: overdue.length })}` : '');
+      const aging = t('skill.payables_aging', { current: fmt(buckets.current), d1_30: fmt(buckets.d1_30), d31_60: fmt(buckets.d31_60), d60_plus: fmt(buckets.d60_plus) });
+      return await reply(`${head}:\n\n${list}\n\n${aging}`, { bills: open, totalCents: total, buckets });
     } catch (err) {
-      console.error('[manage-bills] error:', err);
-      return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'manage-bills', skillResponse: null, responseData: { message: "I couldn't load your bills. Please try again.", actions: [], chartData: null, skillUsed: 'manage-bills', confidence: 0, latencyMs: Date.now() - startTime } };
+      console.error(`[${asked}] error:`, err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: asked, skillResponse: null, responseData: { message: t('skill.bills_load_failed'), actions: [], chartData: null, skillUsed: asked, confidence: 0, latencyMs: Date.now() - startTime } };
     }
   }
 

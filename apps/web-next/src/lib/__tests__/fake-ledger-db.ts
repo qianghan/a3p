@@ -18,14 +18,17 @@ function matches(row: Row, where: Row = {}): boolean {
     if (v !== null && typeof v === 'object') {
       // The few operators the inventory queries use; anything else fails loudly.
       const ops = v as Row;
-      const known = ['in', 'startsWith', 'gte', 'lt'];
+      const known = ['in', 'startsWith', 'gte', 'lt', 'not'];
       if (Object.keys(ops).some((o) => !known.includes(o))) throw new Error(`fake-ledger-db: unsupported filter on ${k}`);
       if (ops.in !== undefined && !(ops.in as unknown[]).includes(row[k])) return false;
       if (ops.startsWith !== undefined && !(typeof row[k] === 'string' && row[k].startsWith(ops.startsWith))) return false;
       if (ops.gte !== undefined && !(row[k] >= ops.gte)) return false;
       if (ops.lt !== undefined && !(row[k] < ops.lt)) return false;
+      if ('not' in ops && (ops.not === null ? row[k] == null : row[k] === ops.not)) return false;
       return true;
     }
+    // Postgres: an unset column is NULL.
+    if (v === null) return row[k] == null;
     return row[k] === v;
   });
 }

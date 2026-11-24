@@ -1,0 +1,340 @@
+// @vitest-environment node
+/**
+ * PR 3d.4 — a bank debit for a bill records a bill PAYMENT (lib/purchases),
+ * sets AbBankTransaction.matchedBillId and never creates an expense.
+ * Proposal path (agentbook-payment-matcher) offers bills; applyBillMatch
+ * applies; the match route ("this is for bill X"), the bank-sync auto path
+ * (runMatcherOnTransaction) and the candidates route are wired to it.
+ * Assertions read the fake ledger's journal lines.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/agentbook-tenant', () => ({ safeResolveAgentbookTenant: async () => ({ tenantId: 't1' }) }));
+vi.mock('@/lib/agentbook-audit', () => ({ audit: vi.fn(async () => {}) }));
+vi.mock('@/lib/agentbook-audit-context', () => ({ inferSource: () => 'web', inferActor: async () => 'user' }));
+vi.mock('@/lib/agentbook-chart-of-accounts', () => ({
+  ensureChartOfAccounts: async () => ({ seeded: false, count: 0 }),
+  ensureUncategorizedAccount: async () => ({ id: 'acct-suspense' }),
+  CASH_CODE: '1000',
+  UNCATEGORIZED_CODE: '6999',
+}));
+vi.mock('@/lib/agentbook-suggest-category', () => ({ suggestCategory: async () => null }));
+const matcherResult = vi.fn();
+const candidatesResult = vi.fn();
+vi.mock('@/lib/agentbook-payment-matcher', async (orig) => {
+  const real = await orig<typeof import('@/lib/agentbook-payment-matcher')>();
+  return { ...real, matchTransaction: (...a: unknown[]) => matcherResult(...a), matchTransactionWithCandidates: (...a: unknown[]) => candidatesResult(...a) };
+});
+vi.mock('plaid', () => ({ Configuration: class {}, PlaidApi: class {}, PlaidEnvironments: {}, Products: {}, CountryCode: {} }));
+vi.mock('@/lib/agentbook-bank-token', () => ({ encryptToken: (s: string) => s, decryptToken: (s: string) => s }));
+
+import { createFakeLedgerDb } from './fake-ledger-db';
+let f: ReturnType<typeof createFakeLedgerDb>;
+let txns: any[];
+let events: any[];
+vi.mock('@naap/database', () => ({ get prisma() { return f.db; } }));
+
+import { postBill } from '../purchases';
+import { applyBillMatch, BankMatchError } from '../agentbook-bank-match';
+import { scoreBillMatch, AUTO_MATCH_THRESHOLD, type MatchableTxn } from '../agentbook-payment-matcher';
+import { runMatcherOnTransaction } from '../agentbook-plaid';
+import { POST as matchRoute } from '@/app/api/v1/agentbook-expense/bank-transactions/[id]/match/route';
+import { GET as candidatesRoute } from '@/app/api/v1/agentbook-expense/bank-transactions/[id]/candidates/route';
+
+const AU = { id: 'cfg', userId: 't1', jurisdiction: 'au', region: 'NSW', gstRegistered: true, currency: 'AUD', accountingBasis: 'accrual' };
+
+function attachBankTables() {
+  txns = [];
+  events = [];
+  const m = (r: any, w: any = {}) => Object.entries(w).every(([k, v]) => r[k] === v);
+  f.db.abBankTransaction = {
+    findFirst: async ({ where }: any) => { const r = txns.find((x) => m(x, where)); return r ? { ...r } : null; },
+    update: async ({ where, data }: any) => { const r = txns.find((x) => x.id === where.id); Object.assign(r, data); return { ...r }; },
+    // Models Postgres: the WHERE is re-checked atomically per row, so one of two racing claims wins.
+    updateMany: async ({ where, data }: any) => {
+      const ok = (r: any) => {
+        const { OR, ...rest } = where;
+        const base = Object.entries(rest).every(([k, v]: any) => (v && typeof v === 'object' && 'not' in v ? r[k] !== v.not : r[k] === v));
+        const any = !OR || OR.some((c: any) => Object.entries(c).every(([k, v]: any) => (v && typeof v === 'object' && 'not' in v ? r[k] !== v.not : r[k] === v)));
+        return base && any;
+      };
+      const rows = txns.filter(ok);
+      for (const r of rows) Object.assign(r, data);
+      return { count: rows.length };
+    },
+  };
+  f.db.abEvent = { create: async ({ data }: any) => { if (failEvents > 0) { failEvents--; throw new Error('event store down'); } events.push(data); return data; } };
+  // The bank tables take part in the fake's transactions: rolled back with the rest on a throw.
+  const inner = f.db.$transaction;
+  f.db.$transaction = async (fn: any, opts?: unknown) => {
+    // Snapshot once the fake's serialising lock is held (inside fn), so a
+    // rollback never clobbers a transaction that committed while we waited.
+    let saved: { txns: any[]; events: number } | null = null;
+    try {
+      return await inner(async (tx: any) => { saved = { txns: txns.map((r) => ({ ...r })), events: events.length }; return fn(tx); }, opts);
+    } catch (err) {
+      if (saved) { txns.splice(0, txns.length, ...(saved as any).txns); events.length = (saved as any).events; }
+      throw err;
+    }
+  };
+}
+let failEvents = 0;
+const txn = (o: Partial<any> = {}) => {
+  const row = { id: `tx-${txns.length + 1}`, tenantId: 't1', amount: 11000, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS 123', merchantName: 'Officeworks', matchStatus: 'pending', matchedBillId: null, matchedExpenseId: null, matchedInvoiceId: null, bankAccount: { currency: 'AUD' }, ...o };
+  txns.push(row);
+  return row;
+};
+async function bill(amountCents = 11000, tenantId = 't1') {
+  const { bill } = await postBill(f.db, tenantId, {
+    vendorName: 'Officeworks', billDate: new Date('2026-11-02T00:00:00Z'), dueDate: new Date('2026-12-02T00:00:00Z'), postingMode: 'at_entry',
+    lines: [{ description: 'Paper', amountCents, categoryId: 'acct-meals', taxCode: 'GST' }],
+  } as any);
+  return bill;
+}
+function netBySource(sourceType: string): Record<string, number> {
+  const ids = new Set(f.state.entries.filter((e) => e.sourceType === sourceType).map((e) => e.id));
+  const out: Record<string, number> = {};
+  for (const l of f.state.lines.filter((x) => ids.has(x.entryId))) out[l.accountId] = (out[l.accountId] ?? 0) + l.debitCents - l.creditCents;
+  return out;
+}
+const ap = () => -(f.netByAccount()['acct-ap'] ?? 0) || 0;
+
+beforeEach(() => {
+  f = createFakeLedgerDb();
+  f.state.tenantConfigs.push({ ...AU });
+  attachBankTables();
+  failEvents = 0;
+  matcherResult.mockReset();
+});
+
+describe('scoreBillMatch (proposal heuristics)', () => {
+  const t = (o: Partial<MatchableTxn> = {}): MatchableTxn => ({ id: 'x', amountCents: 11000, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS', merchantName: 'Officeworks', ...o });
+  const b = { id: 'b', outstandingCents: 11000, billDate: new Date('2026-11-02T00:00:00Z'), dueDate: new Date('2026-12-02T00:00:00Z'), status: 'open', vendorName: 'Officeworks' };
+  it('a debit for the outstanding amount between bill and due date auto-matches', () => {
+    expect(scoreBillMatch(t(), b)).toBeGreaterThanOrEqual(AUTO_MATCH_THRESHOLD);
+  });
+  it('credits, paid bills, wrong amounts and far-off dates score 0', () => {
+    expect(scoreBillMatch(t({ amountCents: -11000 }), b)).toBe(0);
+    expect(scoreBillMatch(t(), { ...b, status: 'paid' })).toBe(0);
+    expect(scoreBillMatch(t({ amountCents: 15000 }), b)).toBe(0);
+    expect(scoreBillMatch(t({ date: new Date('2027-02-01T00:00:00Z') }), b)).toBe(0);
+  });
+  it('matches what is still owing on a partial bill, not the total', () => {
+    expect(scoreBillMatch(t({ amountCents: 6000 }), { ...b, outstandingCents: 6000, status: 'partial' })).toBeGreaterThanOrEqual(AUTO_MATCH_THRESHOLD);
+  });
+});
+
+describe('applyBillMatch', () => {
+  it('posts DR 2000 / CR 1000, sets matchedBillId, AP to 0, no expense row', async () => {
+    const b = await bill();
+    const tx = txn();
+    const r = await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'reconciliation' });
+    expect(netBySource('bill_payment')).toEqual({ 'acct-ap': 11000, 'acct-cash': -11000 });
+    expect([ap(), f.state.expenses.length, txns[0].matchedBillId, txns[0].matchStatus]).toEqual([0, 0, b.id, 'matched']);
+    expect([r.billPaid, r.paymentAmountCents, r.remainingCents]).toEqual([true, 11000, 0]);
+    expect(f.state.billPayments[0]).toMatchObject({ idempotencyKey: `bank:${tx.id}`, method: 'bank' });
+  });
+  it('a smaller debit is a partial payment; a retry replays (one payment)', async () => {
+    const b = await bill();
+    const tx = txn({ amount: 4000 });
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'reconciliation' });
+    txns[0].matchStatus = 'pending'; // simulate a crash before the txn update
+    const r = await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'reconciliation' });
+    expect(f.state.billPayments).toHaveLength(1);
+    expect([ap(), r.remainingCents, r.billPaid]).toEqual([7000, 7000, false]);
+  });
+  it('a debit slightly above what is owing settles the bill without overpaying', async () => {
+    const b = await bill();
+    await applyBillMatch({ tenantId: 't1', txnId: txn({ amount: 11050 }).id, billId: b.id, source: 'reconciliation' });
+    expect([ap(), f.state.billPayments[0].amountCents]).toEqual([0, 11000]);
+  });
+  it('another tenant’s bill → bill_not_found, nothing posted', async () => {
+    f.state.bills.push({ id: 'b-t2', tenantId: 't2', vendorName: 'Officeworks', amountCents: 11000, paidCents: 0, status: 'open', postingMode: 'at_entry', dueDate: new Date('2026-12-02T00:00:00Z'), deletedAt: null, revision: 0 });
+    const b2 = { id: 'b-t2' };
+    const before = f.state.entries.length;
+    await expect(applyBillMatch({ tenantId: 't1', txnId: txn().id, billId: b2.id, source: 'reconciliation' })).rejects.toMatchObject({ code: 'bill_not_found' });
+    expect([f.state.entries.length, f.state.billPayments.length]).toEqual([before, 0]);
+  });
+  it('a credit cannot pay a bill', async () => {
+    const b = await bill();
+    await expect(applyBillMatch({ tenantId: 't1', txnId: txn({ amount: -11000 }).id, billId: b.id, source: 'reconciliation' })).rejects.toBeInstanceOf(BankMatchError);
+    expect(f.state.billPayments).toHaveLength(0);
+  });
+});
+
+describe('wiring', () => {
+  const req = (body: unknown) => ({ url: 'http://x', nextUrl: new URL('http://x'), headers: new Headers(), json: async () => body }) as never;
+  it('POST bank-transactions/:id/match { targetType: bill } → payment + matchedBillId, no expense', async () => {
+    const b = await bill();
+    const tx = txn();
+    const res = await matchRoute(req({ targetType: 'bill', targetId: b.id }), { params: Promise.resolve({ id: tx.id }) });
+    const body = await res.json();
+    expect([res.status, body.data.matchedBillId, body.data.amountCents, body.data.fullyPaid]).toEqual([200, b.id, 11000, true]);
+    expect([ap(), f.state.expenses.length]).toEqual([0, 0]);
+  });
+  it('match route: unknown bill → 404', async () => {
+    const res = await matchRoute(req({ targetType: 'bill', targetId: 'nope' }), { params: Promise.resolve({ id: txn().id }) });
+    expect(res.status).toBe(404);
+  });
+  it('bank sync auto-match on a bill candidate pays the bill (runMatcherOnTransaction)', async () => {
+    const b = await bill();
+    const tx = txn();
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: b.id, score: 0.95 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect([r.matchStatus, txns[0].matchedBillId, ap(), f.state.expenses.length]).toEqual(['matched', b.id, 0, 0]);
+  });
+  it('a review-band bill guess is stored for one tap, nothing paid yet', async () => {
+    const b = await bill();
+    const tx = txn();
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: b.id, score: 0.6 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect([r.matchStatus, txns[0].matchedBillId, f.state.billPayments.length, ap()]).toEqual(['exception', b.id, 0, 11000]);
+  });
+  it('candidates route offers "this is for bill X" with what is still owing', async () => {
+    const b = await bill();
+    f.state.bills[0].paidCents = 4000;
+    const tx = txn({ amount: 7000 });
+    candidatesResult.mockResolvedValue([{ kind: 'bill', targetId: b.id, score: 0.9, amountDeltaCents: 0 }, { kind: 'bill', targetId: 'b-foreign', score: 0.8 }]);
+    const res = await candidatesRoute({ url: 'http://x', nextUrl: new URL('http://x?limit=3'), headers: new Headers() } as never, { params: Promise.resolve({ id: tx.id }) });
+    const body = await res.json();
+    expect(body.data.candidates).toEqual([{ kind: 'bill', targetId: b.id, label: 'Officeworks', amountCents: 7000, date: '2026-12-02T00:00:00.000Z', score: 0.9, differenceCents: 0 }]);
+  });
+});
+
+describe('fix round 1 — review I1/I2/M1/M2', () => {
+  it('I1: one debit never pays two bills — concurrent applies to A and B: exactly one payment, the loser is refused', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    const results = await Promise.allSettled([
+      applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' }),
+      applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'telegram_button' }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ code: 'txn_already_matched' });
+    expect(f.state.billPayments).toHaveLength(1);
+    expect(txns[0].matchedBillId).toBe(f.state.billPayments[0].billId);
+    expect(netBySource('bill_payment')['acct-cash']).toBe(-11000);
+  });
+  it('I1: a debit already paying bill A (payment on file) cannot be re-pointed to B, even from the review band', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' });
+    txns[0].matchStatus = 'exception';
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'reconciliation' })).rejects.toMatchObject({ code: 'txn_already_matched' });
+    expect(f.state.billPayments).toHaveLength(1);
+  });
+  it('I1: a refused payment releases the claim (the txn can be matched again)', async () => {
+    const a = await bill();
+    const tx = txn();
+    f.state.bills[0].status = 'paid'; f.state.bills[0].paidCents = 11000;
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' })).rejects.toBeTruthy();
+    expect([txns[0].matchStatus, txns[0].matchedBillId]).toEqual(['pending', null]);
+  });
+  it('I2: a bill in another currency than the bank account is refused, nothing posted; scoring gives it 0', async () => {
+    const a = await bill();
+    f.state.bills[0].currency = 'USD';
+    const tx = txn({ bankAccount: { currency: 'AUD' } });
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' })).rejects.toMatchObject({ code: 'txn_currency_mismatch' });
+    expect([f.state.billPayments.length, txns[0].matchStatus]).toEqual([0, 'pending']);
+    const t0 = { id: 'x', amountCents: 11000, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS', merchantName: 'Officeworks', currency: 'AUD' };
+    const b0 = { id: 'b', outstandingCents: 11000, billDate: new Date('2026-11-02T00:00:00Z'), dueDate: new Date('2026-12-02T00:00:00Z'), status: 'open', vendorName: 'Officeworks', currency: 'USD', postingMode: 'at_entry' };
+    expect(scoreBillMatch(t0, b0)).toBe(0);
+    expect(scoreBillMatch(t0, { ...b0, currency: 'AUD' })).toBeGreaterThan(0);
+  });
+  it('M1: an under-owing debit never scores against an at_payment bill (partial not supported) and apply refuses before claiming', async () => {
+    const t0 = { id: 'x', amountCents: 10950, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS', merchantName: 'Officeworks' };
+    const b0 = { id: 'b', outstandingCents: 11000, billDate: new Date('2026-11-02T00:00:00Z'), dueDate: new Date('2026-12-02T00:00:00Z'), status: 'open', vendorName: 'Officeworks', postingMode: 'at_payment' };
+    expect(scoreBillMatch(t0, b0)).toBe(0);
+    expect(scoreBillMatch(t0, { ...b0, postingMode: 'at_entry' })).toBeGreaterThan(0);
+    f.state.bills.push({ id: 'b-leg', tenantId: 't1', vendorName: 'Officeworks', amountCents: 11000, paidCents: 0, status: 'open', postingMode: 'at_payment', dueDate: new Date('2026-12-02T00:00:00Z'), deletedAt: null, revision: 0 });
+    await expect(applyBillMatch({ tenantId: 't1', txnId: txn({ amount: 10950 }).id, billId: 'b-leg', source: 'reconciliation' })).rejects.toMatchObject({ code: 'amount_mismatch' });
+    expect([f.state.billPayments.length, txns[0].matchStatus]).toEqual([0, 'pending']);
+  });
+  it('M2: a debit above owing is never auto-applied by bank sync (review band, nothing paid); a manual tap pays owing and reports the excess', async () => {
+    const a = await bill();
+    const tx = txn({ amount: 11040 });
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 40 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect([r.matchStatus, f.state.billPayments.length, txns[0].matchedBillId]).toEqual(['exception', 0, a.id]);
+    const m = await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' });
+    expect([m.paymentAmountCents, m.excessCents]).toEqual([11000, 40]);
+    expect(events.at(-1).action.excessCents).toBe(40);
+  });
+});
+
+describe('fix round 2 — review N1/N2: the claim commits with the payment', () => {
+  it('N1 claimed-without-payment cannot happen: a failure in the payment transaction leaves the debit unclaimed and unpaid', async () => {
+    const a = await bill();
+    const tx = txn();
+    f.state.injectTxErrors.push('XFAIL');
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' })).rejects.toBeTruthy();
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length, netBySource('bill_payment')]).toEqual(['pending', null, 0, {}]);
+  });
+  it('N1 claim lost inside the transaction (row matched elsewhere in between) rolls the payment back', async () => {
+    const a = await bill();
+    const tx = txn({ matchStatus: 'matched', matchedBillId: 'some-other-bill' });
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' })).rejects.toMatchObject({ code: 'txn_already_matched' });
+    expect([f.state.billPayments.length, ap(), txns[0].matchedBillId]).toEqual([0, 11000, 'some-other-bill']);
+  });
+  it('N1 paid-without-claim cannot happen: a second same-bill apply that fails after the first paid leaves the claim in place', async () => {
+    const a = await bill();
+    const tx = txn();
+    const [r1, r2] = await Promise.allSettled([
+      applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' }),
+      (async () => { await Promise.resolve(); f.state.injectTxErrors.push('XFAIL2'); return applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'telegram_picker' }); })(),
+    ]);
+    expect(f.state.billPayments).toHaveLength(1);
+    expect([r1.status, r2.status]).toContain('fulfilled');
+    expect([txns[0].matchStatus, txns[0].matchedBillId]).toEqual(['matched', a.id]);
+    // and a later failing replay does not release it either
+    f.state.injectTxErrors.push('XFAIL3');
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' }).catch(() => null);
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['matched', a.id, 1]);
+  });
+  it('N2 the event write is in the same transaction: if it fails nothing is paid and the debit stays unclaimed', async () => {
+    const a = await bill();
+    const tx = txn();
+    failEvents = 1;
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' })).rejects.toBeTruthy();
+    expect([f.state.billPayments.length, txns[0].matchStatus]).toEqual([0, 'pending']);
+  });
+  it('N2 user tap wins: the bank-sync apply for another bill loses and leaves the confirmed match untouched', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'telegram_button' });
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 0 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect(r.matchStatus).toBe('matched');
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['matched', b.id, 1]);
+  });
+  it('N2 a refused auto-apply marks exception only where the row is not already matched', async () => {
+    const a = await bill();
+    const tx = txn();
+    failEvents = 1;
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 0 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect([r.matchStatus, txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['exception', 'exception', a.id, 0]);
+  });
+  it('N1 a keyed replay re-asserts the claim (a payment on file with an unclaimed row ends matched, one payment)', async () => {
+    const a = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' });
+    Object.assign(txns[0], { matchStatus: 'pending', matchedBillId: null }); // a pre-fix orphan
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' });
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['matched', a.id, 1]);
+  });
+  it('N2 any other refusal on a row already matched elsewhere leaves it untouched', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'telegram_button' });
+    f.state.bills.find((x) => x.id === a.id)!.currency = 'USD'; // A now refuses with txn_currency_mismatch
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 0 });
+    await runMatcherOnTransaction('t1', tx);
+    expect([txns[0].matchStatus, txns[0].matchedBillId]).toEqual(['matched', b.id]);
+  });
+});

@@ -5,8 +5,8 @@ import { Camera, PenLine } from 'lucide-react';
 import { parseAmountToCents } from '@agentbook/i18n';
 import { useT, useShellLocale } from '@/hooks/use-t';
 import type { FromReceiptResult, MobileDoc } from '@/lib/mobile/types';
-import { queueExpense } from '@/lib/offline-queue';
-import { uploadReceipt, patchDoc, categorizeDoc, deleteDoc, getTaxRow, type TaxRow as TaxRowView } from '../_lib/api';
+import { queueBill, queueExpense } from '@/lib/offline-queue';
+import { uploadReceipt, patchDoc, categorizeDoc, deleteDoc, getTaxRow, createBill, type TaxRow as TaxRowView } from '../_lib/api';
 import { confirmDoc, createExpense, getTenantCurrency, suggestCategoryFor } from '../_lib/api-extra';
 import { compressImage } from '../_lib/image';
 import { queueReceiptForReplay, isOfflineError, newIdempotencyKey } from '../_lib/offline';
@@ -23,12 +23,18 @@ type Stage = 'idle' | 'uploading' | 'review';
 /** Where the expense stands while the form is open. */
 type Source = 'uploaded' | 'offline' | 'failed' | 'manual';
 type ErrorKind = null | 'period_closed' | 'read_failed' | 'upload_too_large' | 'save_too_large' | 'save_failed' | 'queue_failed'
-  | 'amount_invalid' | 'amount_ambiguous' | 'discard_failed' | 'review_amount' | 'receipt_deleted';
+  | 'amount_invalid' | 'amount_ambiguous' | 'discard_failed' | 'review_amount' | 'receipt_deleted' | 'vendor_required' | 'due_invalid';
 
-interface Draft { amount: string; vendor: string; date: string; categoryId: string | null; categoryName: string | null; isPersonal: boolean }
+interface Draft { amount: string; vendor: string; date: string; categoryId: string | null; categoryName: string | null; isPersonal: boolean; payLater: boolean; dueDate: string }
 interface Fields { amountCents: number; vendor?: string; date?: string; categoryId?: string; isPersonal: boolean; taxCode?: string; taxAmountCents?: number }
 
-const emptyDraft = (): Draft => ({ amount: '', vendor: '', date: todayIso(), categoryId: null, categoryName: null, isPersonal: false });
+/** A "Pay later" bill defaults to due in 14 days (the chat skill's default too). */
+const BILL_DEFAULT_DUE_DAYS = 14;
+const isoPlusDays = (iso: string, days: number) => {
+  const d = new Date(`${iso}T12:00:00Z`);
+  return isNaN(d.getTime()) ? iso : new Date(d.getTime() + days * 86_400_000).toISOString().slice(0, 10);
+};
+const emptyDraft = (): Draft => ({ amount: '', vendor: '', date: todayIso(), categoryId: null, categoryName: null, isPersonal: false, payLater: false, dueDate: isoPlusDays(todayIso(), BILL_DEFAULT_DUE_DAYS) });
 const statusOf = (e: unknown) => (e && typeof e === 'object' ? (e as { status?: number }).status : undefined);
 const codeOf = (e: unknown) => (e && typeof e === 'object' ? (e as { code?: string }).code : undefined);
 /** A too-large photo: the client pre-flight (code) or the platform's plain-text 413 (status). Never branch on the message. */
@@ -152,6 +158,8 @@ export default function MobileCapture() {
       categoryId: d.categoryId,
       categoryName: d.categoryName,
       isPersonal: d.isPersonal,
+      payLater: false,
+      dueDate: isoPlusDays(todayIso(), BILL_DEFAULT_DUE_DAYS),
     });
   }
 
@@ -252,10 +260,39 @@ export default function MobileCapture() {
     }
   }
 
+  /**
+   * PR 3d.2 — "Pay later": the capture becomes a bill (accounts payable) due
+   * on `dueDate`, not an expense. Same key online and queued, so a replay
+   * after a lost response is one bill. Returns true if queued.
+   */
+  async function saveBill(f: Fields): Promise<boolean> {
+    const cur = currency ?? (deviceOffline() ? null : await getTenantCurrency().catch(() => null));
+    const payload = {
+      vendorName: f.vendor ?? '', amountCents: f.amountCents, dueDate: draft.dueDate,
+      ...(f.date ? { billDate: f.date } : {}),
+      ...(f.categoryId ? { categoryId: f.categoryId } : {}),
+      ...(f.taxCode ? { taxCode: f.taxCode } : {}),
+      ...(cur ? { currency: cur } : {}),
+    };
+    const key = attemptKey ?? newIdempotencyKey();
+    const queue = async () => { await queueOr(() => queueBill(payload, key)); return true; };
+    if (deviceOffline()) return queue();
+    try {
+      await createBill(payload, key);
+      return false;
+    } catch (e) {
+      if (isOfflineError(e)) return queue();
+      throw e;
+    }
+  }
+
   async function save(next: boolean) {
     const parsed = parseAmountToCents(draft.amount, locale);
     if (!parsed.ok || parsed.cents <= 0) { setErrorKind('amount_invalid'); return; }
     if (parsed.ambiguous) { setAmbiguous(parsed.formatted); setErrorKind('amount_ambiguous'); return; }
+    const asBill = draft.payLater && source === 'manual' && !draft.isPersonal;
+    if (asBill && !draft.vendor.trim()) { setErrorKind('vendor_required'); return; }
+    if (asBill && (!/^\d{4}-\d{2}-\d{2}$/.test(draft.dueDate) || (draft.date && draft.dueDate < draft.date))) { setErrorKind('due_invalid'); return; }
     setErrorKind(null);
     // The tax row converts an exclusive entry to the document gross with the engine, at save time,
     // so what is booked is exactly what the server computes. No preview → never book the net as gross.
@@ -280,10 +317,11 @@ export default function MobileCapture() {
     try {
       let queued = false;
       if (source === 'uploaded' && doc) await finalizeUploaded(doc, f);
+      else if (asBill) queued = await saveBill(f);
       else if (source === 'manual') queued = await saveManual(f);
       else queued = await saveReceipt(f);
       if (draft.categoryId && draft.categoryName) pushRecentCategory({ id: draft.categoryId, name: draft.categoryName });
-      toast.show(queued ? t('mobile.capture.queued_toast') : t('mobile.capture.saved'), { tone: queued ? 'neutral' : 'good' });
+      toast.show(queued ? t('mobile.capture.queued_toast') : asBill ? t('mobile.capture.bill_saved') : t('mobile.capture.saved'), { tone: queued ? 'neutral' : 'good' });
       reset(next);
     } catch (e) {
       if (e instanceof DeletedError) {
@@ -330,6 +368,8 @@ export default function MobileCapture() {
       case 'discard_failed': return [t('mobile.capture.discard_failed')];
       case 'review_amount': return [t('mobile.capture.review_amount')];
       case 'receipt_deleted': return [t('mobile.capture.receipt_deleted')];
+      case 'vendor_required': return [t('mobile.capture.bill_vendor_required')];
+      case 'due_invalid': return [t('mobile.capture.bill_due_invalid')];
     }
   }
   const busy = saving || stage === 'uploading';
@@ -404,6 +444,22 @@ export default function MobileCapture() {
                 </button>
               ))}
             </div>
+            {source === 'manual' && !draft.isPersonal && (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <button type="button" role="switch" data-testid="capture-pay-later" aria-checked={draft.payLater}
+                  aria-describedby="capture-pay-later-hint" onClick={() => set('payLater', !draft.payLater)}
+                  style={{ ...seg(draft.payLater), flex: 'none', width: '100%' }}>
+                  {t('mobile.capture.pay_later')}
+                </button>
+                <p id="capture-pay-later-hint" style={{ margin: 0, fontSize: 13, color: tokens.color.muted }}>{t('mobile.capture.pay_later_hint')}</p>
+                {draft.payLater && (
+                  <label style={label}>{t('mobile.capture.field_due_date')}
+                    <input data-testid="capture-due-date" style={field} type="date" value={draft.dueDate} min={draft.date || undefined}
+                      onChange={(e) => set('dueDate', e.target.value)} />
+                  </label>
+                )}
+              </div>
+            )}
           </fieldset>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

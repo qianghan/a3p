@@ -77,6 +77,8 @@ interface CreateBillBody {
   description?: string;
   amountCents?: number;
   categoryCode?: string;
+  /** PR 3d.2: Capture sends the account id it shows; resolved tenant-scoped to its code. */
+  categoryId?: string;
   dueDate?: string;
   billDate?: string;
   billNumber?: string;
@@ -104,6 +106,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const due = new Date(body.dueDate);
     if (isNaN(due.getTime())) {
       return NextResponse.json({ success: false, error: 'invalid dueDate' }, { status: 400 });
+    }
+
+    if (body.categoryId && !body.categoryCode) {
+      const acct = await db.abAccount.findFirst({ where: { id: body.categoryId, tenantId, accountType: 'expense' } });
+      if (!acct) return NextResponse.json({ success: false, code: 'invalid_category', error: 'unknown categoryId' }, { status: 422 });
+      body.categoryCode = acct.code;
     }
 
     // O6: bills are booked in the tenant currency only (both posting modes).
@@ -146,6 +154,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
 
+    // PR 3d.2: the mobile offline queue replays a capture with the same key.
+    // Same key + same document → the existing bill (200); different → 409.
+    const idemKey = (body.idempotencyKey ?? request.headers.get('idempotency-key'))?.trim() || null;
+    if (idemKey) {
+      const hit = await db.abBill.findFirst({ where: { tenantId, idempotencyKey: idemKey, ...liveBillWhere() } });
+      if (hit) {
+        if (hit.vendorName !== body.vendorName || hit.amountCents !== body.amountCents || hit.dueDate.getTime() !== due.getTime()) {
+          return NextResponse.json({ success: false, code: 'idempotency_key_conflict', error: 'This idempotency key was used for a different bill' }, { status: 409 });
+        }
+        return NextResponse.json({ success: true, data: hit }, { status: 200 });
+      }
+    }
+
     // at_payment + inventory: validate the item now (tenant-scoped, no FK),
     // store it on a bill line; the stock arrives when the bill is paid.
     let itemLine: { itemId: string; qty: number; categoryId: string } | null = null;
@@ -181,6 +202,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         paidCents: 0,
         revision: 0,
         deletedAt: null,
+        idempotencyKey: idemKey,
       },
     });
     if (itemLine) {
