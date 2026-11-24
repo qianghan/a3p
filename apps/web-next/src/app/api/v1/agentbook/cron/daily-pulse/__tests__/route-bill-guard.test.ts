@@ -9,11 +9,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/logger', () => ({ reportError: vi.fn() }));
 vi.mock('@/lib/cron-auth', () => ({ requireCronSecret: () => null }));
-const cands = vi.fn();
+const cands = vi.fn(async (..._a: unknown[]): Promise<any[]> => []);
 vi.mock('@/lib/agentbook-payment-matcher', () => ({ matchTransactionWithCandidates: (...a: unknown[]) => cands(...a) }));
 const expenseCreate = vi.fn(async (a: any) => a.data);
-const txnFindMany = vi.fn();
-const txnUpdate = vi.fn(async () => ({}));
+const txnFindMany = vi.fn(async (_a: any): Promise<any[]> => []);
+const txnUpdate = vi.fn(async (_a: any) => ({}));
 vi.mock('@naap/database', () => ({
   prisma: {
     abTenantConfig: { findMany: async () => [{ userId: 't1', timezone: 'America/New_York' }] },
