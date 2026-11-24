@@ -85,6 +85,17 @@ describe('GET/POST /agentbook-tax/restatement', () => {
     expect((await post({ year: 2026, expenseIds: [] })).status).toBe(400);
   });
 
+  it('default year is today in the tenant zone (M-3): 01:00 1 Jul in Sydney is AU tax year 2027', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-30T15:00:00Z'));
+    try {
+      const p = await (await get('')).json();
+      expect([p.data.year, p.data.from, p.data.to]).toEqual([2027, '2026-07-01', '2027-06-30']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects a malformed year with 400', async () => {
     expect((await get('?year=abc')).status).toBe(400);
     expect((await post({ year: 1990 })).status).toBe(400);

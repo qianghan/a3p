@@ -26,7 +26,7 @@
  */
 import 'server-only';
 import { prisma as db } from '@naap/database';
-import { auFinancialYearOf, auFinancialYearStart } from '@agentbook/jurisdictions';
+import { taxYearBounds, taxYearOfDate, currentTaxYear } from '@agentbook/jurisdictions/restatement-year';
 import { resolveExpenseTax, isMealsAccount } from '@/lib/expense-tax';
 import { taxJurisdictionOf, type TenantTaxContext } from '@/lib/tax-codes';
 import { assertPeriodOpen, LedgerPeriodClosedError, LedgerKeyConflict } from '@/lib/ledger-writer';
@@ -39,13 +39,19 @@ import {
 
 const TAX_CONTROL_CODE = '2100';
 
+/** Rows one apply call processes (review I-2): bounded so the route always answers inside its time limit. */
+export const RESTATEMENT_BATCH_SIZE = 100;
+/** And a wall-clock budget, under the route's maxDuration (60 s). */
+export const RESTATEMENT_TIME_BUDGET_MS = 40_000;
+
 export type RestatementSkipReason =
   | 'period_closed'
   | 'tax_mismatch'
   | 'nothing_recoverable'
   | 'no_tax_account'
   | 'already_reversed'
-  | 'unsupported_shape';
+  | 'unsupported_shape'
+  | 'currency_mismatch';
 
 export type RestatementNotApplicable = 'unsupported_jurisdiction' | 'not_registered';
 
@@ -63,6 +69,11 @@ export interface RestatementRow {
 
 export interface SkippedRestatementRow extends RestatementRow {
   reason: RestatementSkipReason;
+}
+
+export interface FailedRestatementRow extends RestatementRow {
+  /** Unexpected error; the row was rolled back and stays eligible for the next run. */
+  reason: 'error';
 }
 
 export interface RestatementPreview {
@@ -91,23 +102,34 @@ export interface RestatementPreview {
   netProfitDeltaCents: number;
 }
 
+/**
+ * What ONE apply call did, row by row. `restated` are committed; `failed`
+ * were rolled back; `remaining` eligible rows were not reached this call
+ * (batch / time budget) — call again to continue: restated rows are typed, so
+ * a re-run picks up exactly the rows still untyped.
+ */
 export interface RestatementApplyResult extends RestatementPreview {
   restated: RestatementRow[];
+  failed: FailedRestatementRow[];
+  remaining: number;
 }
 
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
-/** [from, toExclusive) of a tax year: AU income year ending 30 Jun `year`; everyone else the calendar year. */
+/** [from, toExclusive) of a tax year (shared definition: @agentbook/jurisdictions/restatement-year). */
 export function restatementYearBounds(jurisdiction: string | null | undefined, year: number): { from: Date; toExclusive: Date } {
-  if ((jurisdiction ?? '').toLowerCase() === 'au') {
-    return { from: auFinancialYearStart(year), toExclusive: auFinancialYearStart(year + 1) };
-  }
-  return { from: new Date(Date.UTC(year, 0, 1)), toExclusive: new Date(Date.UTC(year + 1, 0, 1)) };
+  const b = taxYearBounds(jurisdiction, year);
+  return { from: b.from, toExclusive: b.toExclusive };
 }
 
-/** The tax year a date falls in, in the same naming as restatementYearBounds. */
+/** The tax year a date falls in. */
 export function restatementYearOf(jurisdiction: string | null | undefined, date: Date): number {
-  return (jurisdiction ?? '').toLowerCase() === 'au' ? auFinancialYearOf(date) : date.getUTCFullYear();
+  return taxYearOfDate(jurisdiction, day(date));
+}
+
+/** The default tax year for a tenant: today's date in its zone. */
+export function defaultRestatementYear(cfg: { jurisdiction?: string | null; timezone?: string | null } | null | undefined, now = new Date()): number {
+  return currentTaxYear(cfg?.jurisdiction || 'us', now, cfg?.timezone ?? null);
 }
 
 type Client = typeof db;
@@ -143,6 +165,7 @@ async function classify(client: Client, tenantId: string, year: number): Promise
     gstRegistered: cfg?.gstRegistered ?? null,
     qstRegistered: (cfg as { qstRegistered?: boolean | null } | null)?.qstRegistered ?? null,
   };
+  const tenantCurrency = String((cfg as { currency?: string | null } | null)?.currency || '').toUpperCase();
   const out: Classified = { ...base, applicable: true };
 
   const rows = await client.abExpense.findMany({
@@ -157,6 +180,29 @@ async function classify(client: Client, tenantId: string, year: number): Promise
   });
   const taxControl = await client.abAccount.findFirst({ where: { tenantId, code: TAX_CONTROL_CODE }, select: { id: true } });
 
+  // Batched lookups (review I-2): vendors once, accounts once.
+  const vendorIds = [...new Set(rows.map((e) => e.vendorId).filter((x): x is string => !!x))];
+  const vendors = vendorIds.length
+    ? await client.abVendor.findMany({ where: { tenantId, id: { in: vendorIds } } })
+    : [];
+  const vendorCode = new Map(vendors.map((v) => [v.id, (v as { defaultTaxCode?: string | null }).defaultTaxCode ?? null]));
+  const accounts = await client.abAccount.findMany({ where: { tenantId } });
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const periodOpen = new Map<string, boolean>();
+  const isOpen = async (d: Date) => {
+    const k = d.toISOString().slice(0, 7);
+    if (!periodOpen.has(k)) {
+      try {
+        await assertPeriodOpen(client, tenantId, d);
+        periodOpen.set(k, true);
+      } catch (err) {
+        if (!(err instanceof LedgerPeriodClosedError)) throw err;
+        periodOpen.set(k, false);
+      }
+    }
+    return periodOpen.get(k) as boolean;
+  };
+
   for (const e of rows) {
     if (!e.journalEntryId) continue; // off the books: nothing to restate
     const typedCode = (e as { taxCode?: string | null }).taxCode;
@@ -164,49 +210,57 @@ async function classify(client: Client, tenantId: string, year: number): Promise
     const taxAmount = e.taxAmountCents ?? 0;
     if (!(taxAmount > 0) || taxAmount >= e.amountCents) { out.noTaxAmount++; continue; }
 
-    const vendor = e.vendorId
-      ? await client.abVendor.findFirst({ where: { id: e.vendorId, tenantId } })
-      : null;
-    const category = e.categoryId
-      ? await client.abAccount.findFirst({ where: { id: e.categoryId, tenantId } })
-      : null;
-    const resolved = resolveExpenseTax({
-      tenant,
-      vendorDefaultTaxCode: (vendor as { defaultTaxCode?: string | null } | null)?.defaultTaxCode ?? null,
-      amountCents: e.amountCents,
-      isMeal: isMealsAccount(category as { name?: string | null; taxCategory?: string | null } | null),
-      printedTaxCents: taxAmount,
-    });
-    const row: RestatementRow = {
+    const baseRow: RestatementRow = {
       expenseId: e.id,
       date: day(e.date),
       description: e.description || '',
       amountCents: e.amountCents,
       taxAmountCents: taxAmount,
-      taxCode: resolved.taxCode,
-      recoverableTaxCents: resolved.recoverableTaxCents,
+      taxCode: null,
+      recoverableTaxCents: 0,
     };
-    const skip = (reason: RestatementSkipReason) => out.skipped.push({ ...row, recoverableTaxCents: 0, reason });
+    const skip = (reason: RestatementSkipReason, row: RestatementRow = baseRow) => out.skipped.push({ ...row, recoverableTaxCents: 0, reason });
 
-    if (!resolved.taxCode || resolved.taxReview) { skip('tax_mismatch'); continue; }
-    if (!(resolved.recoverableTaxCents > 0) || resolved.recoverableTaxCents > taxAmount) { skip('nothing_recoverable'); continue; }
-    try {
-      await assertPeriodOpen(client, tenantId, e.date);
-    } catch (err) {
-      if (err instanceof LedgerPeriodClosedError) { skip('period_closed'); continue; }
-      throw err;
-    }
-    if (!taxControl) { skip('no_tax_account'); continue; }
+    // M-4: amounts are never converted; a row in another currency than the
+    // tenant's would be priced against the wrong rates. Expense create
+    // defaults currency to 'USD' when a client sends none, so for an AUD/CAD
+    // tenant such a row is listed here rather than guessed.
+    const rowCurrency = String((e as { currency?: string | null }).currency || '').toUpperCase();
+    if (tenantCurrency && rowCurrency && rowCurrency !== tenantCurrency) { skip('currency_mismatch'); continue; }
 
-    const lines = (await client.abJournalLine.findMany({ where: { entryId: e.journalEntryId } })) || [];
+    // The booked entry decides the shape, the date and the account (M-1, M-2).
+    const entry = await client.abJournalEntry.findFirst({ where: { id: e.journalEntryId, tenantId } });
+    const lines = entry ? (await client.abJournalLine.findMany({ where: { entryId: entry.id } })) || [] : [];
     const debits = lines.filter((l) => l.debitCents > 0);
     const credits = lines.filter((l) => l.creditCents > 0);
     const plain =
+      !!entry && !!taxControl &&
       lines.length === 2 && debits.length === 1 && credits.length === 1 &&
       debits[0].accountId !== taxControl.id &&
-      debits[0].debitCents === e.amountCents && credits[0].creditCents === e.amountCents;
-    if (!plain) { skip('unsupported_shape'); continue; }
-    if (await isExpenseEntryAlreadyReversed(client, tenantId, e.id, e.journalEntryId, lines)) { skip('already_reversed'); continue; }
+      debits[0].debitCents === e.amountCents && credits[0].creditCents === e.amountCents &&
+      // M-1: the repost would also MOVE the debit to categoryId if they
+      // differ; preview and apply must price the same account, so a drifted
+      // row is not restated automatically.
+      (!e.categoryId || debits[0].accountId === e.categoryId);
+    if (taxControl && !plain) { skip('unsupported_shape'); continue; }
+
+    const booked = debits[0] ? accountById.get(debits[0].accountId) : undefined;
+    const resolved = resolveExpenseTax({
+      tenant,
+      vendorDefaultTaxCode: e.vendorId ? vendorCode.get(e.vendorId) ?? null : null,
+      amountCents: e.amountCents,
+      isMeal: isMealsAccount((booked ?? null) as { name?: string | null; taxCategory?: string | null } | null),
+      printedTaxCents: taxAmount,
+    });
+    const row: RestatementRow = { ...baseRow, taxCode: resolved.taxCode, recoverableTaxCents: resolved.recoverableTaxCents };
+
+    if (!resolved.taxCode || resolved.taxReview) { skip('tax_mismatch', row); continue; }
+    if (!(resolved.recoverableTaxCents > 0) || resolved.recoverableTaxCents > taxAmount) { skip('nothing_recoverable', row); continue; }
+    // M-2: the repost reverses on the ORIGINAL entry's date and books on the
+    // expense date — both months must be open.
+    if (!(await isOpen(e.date)) || (entry && !(await isOpen(entry.date)))) { skip('period_closed', row); continue; }
+    if (!taxControl) { skip('no_tax_account', row); continue; }
+    if (await isExpenseEntryAlreadyReversed(client, tenantId, e.id, e.journalEntryId, lines)) { skip('already_reversed', row); continue; }
 
     out.eligible.push({ row, entryId: e.journalEntryId });
   }
@@ -249,33 +303,45 @@ class Skip extends Error {
 }
 
 /**
- * Restate `year` (or only `opts.expenseIds` within it): for each eligible row, in its own transaction, type it
- * (taxCode + recoverableTaxCents; taxAmountCents is unchanged) and repost it
- * through repostExpenseJournalEntry, which writes the amend-reversal of the
- * current entry and the 3-line replacement under `expense_amend*` keys.
+ * Restate `year` (or only `opts.expenseIds` within it): for each eligible row,
+ * in its own transaction, type it (taxCode + recoverableTaxCents;
+ * taxAmountCents is unchanged) and repost it through
+ * repostExpenseJournalEntry, which writes the amend-reversal of the current
+ * entry and the 3-line replacement under `expense_amend*` keys.
  * The updateMany guard (taxCode still null, entry unchanged) makes a concurrent
- * or repeated run a no-op for that row; any repost refusal rolls the row back
- * and lists it as skipped.
+ * or repeated run a no-op for that row.
+ *
+ * Never throws after a commit (review I-2): every row ends in exactly one of
+ * restated / skipped / failed / remaining, and the counts describe what was
+ * actually written. At most `opts.limit` rows (and RESTATEMENT_TIME_BUDGET_MS)
+ * per call.
  */
 export async function applyTaxRestatement(
   tenantId: string,
   year: number,
   client: Client = db,
-  opts: { expenseIds?: string[] } = {},
+  opts: { expenseIds?: string[]; limit?: number; timeBudgetMs?: number; now?: () => number } = {},
 ): Promise<RestatementApplyResult> {
   const c = await classify(client, tenantId, year);
-  // Optional subset (the caller has already 404'd ids that are not this
-  // tenant's): only those rows are touched; the rest stay as they are.
   if (opts.expenseIds) {
     const only = new Set(opts.expenseIds);
     c.eligible = c.eligible.filter((x) => only.has(x.row.expenseId));
     c.skipped = c.skipped.filter((x) => only.has(x.expenseId));
   }
+  const limit = Math.max(1, opts.limit ?? RESTATEMENT_BATCH_SIZE);
+  const budget = opts.timeBudgetMs ?? RESTATEMENT_TIME_BUDGET_MS;
+  const clock = opts.now ?? Date.now;
+  const started = clock();
+
   const restated: RestatementRow[] = [];
+  const failed: FailedRestatementRow[] = [];
   const skipped: SkippedRestatementRow[] = [...c.skipped];
   let alreadyTyped = c.alreadyTyped;
+  let processed = 0;
 
   for (const { row, entryId } of c.eligible) {
+    if (processed >= limit || clock() - started > budget) break;
+    processed++;
     try {
       await client.$transaction(async (tx) => {
         const n = await tx.abExpense.updateMany({
@@ -295,10 +361,18 @@ export async function applyTaxRestatement(
         : err instanceof ExpenseLedgerShapeError ? 'unsupported_shape'
         : err instanceof LedgerKeyConflict || (err as { code?: string })?.code === 'P2002' ? 'already_typed'
         : null;
-      if (!reason) throw err;
       if (reason === 'already_typed') alreadyTyped++;
-      else skipped.push({ ...row, recoverableTaxCents: 0, reason });
+      else if (reason) skipped.push({ ...row, recoverableTaxCents: 0, reason });
+      else {
+        console.error('[tax-restatement] row failed, rolled back:', row.expenseId, err);
+        failed.push({ ...row, recoverableTaxCents: 0, reason: 'error' });
+      }
     }
   }
-  return { ...summarise(year, { ...c, alreadyTyped }, restated, skipped), restated };
+  return {
+    ...summarise(year, { ...c, alreadyTyped }, restated, skipped),
+    restated,
+    failed,
+    remaining: c.eligible.length - processed,
+  };
 }

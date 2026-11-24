@@ -19,7 +19,7 @@ import { publicErrorMessage } from '@/lib/api-error';
 import {
   previewTaxRestatement,
   applyTaxRestatement,
-  restatementYearOf,
+  defaultRestatementYear,
 } from '@/lib/tax-restatement';
 
 export const runtime = 'nodejs';
@@ -29,7 +29,7 @@ export const maxDuration = 60;
 async function resolveYear(tenantId: string, raw: unknown): Promise<number | NextResponse> {
   if (raw === undefined || raw === null || raw === '') {
     const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
-    return restatementYearOf(cfg?.jurisdiction, new Date());
+    return defaultRestatementYear(cfg);
   }
   const year = typeof raw === 'number' ? raw : Number(String(raw));
   const max = new Date().getUTCFullYear() + 1;

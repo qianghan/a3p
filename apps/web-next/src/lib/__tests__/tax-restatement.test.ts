@@ -258,3 +258,75 @@ describe('apply', () => {
     expect(h.fake.state.entries.length).toBe(1);
   });
 });
+
+describe('review fix round 1', () => {
+  const three = () => {
+    h.fake.state.tenantConfigs.push(AU);
+    seedLegacy('r1', new Date('2026-03-01T12:00:00Z'));
+    seedLegacy('r2', new Date('2026-03-02T12:00:00Z'));
+    seedLegacy('r3', new Date('2026-03-03T12:00:00Z'));
+  };
+
+  it('I-2: a generic failure on row 2 is reported per row; the batch still returns what it committed; a re-run picks up only the failed row', async () => {
+    three();
+    h.fake.state.injectTxErrors.push('', 'ETIMEDOUT');
+    const r = await applyTaxRestatement('t1', 2026);
+    expect(r.restated.map((x) => x.expenseId)).toEqual(['r1', 'r3']);
+    expect(r.failed.map((x) => [x.expenseId, x.reason])).toEqual([['r2', 'error']]);
+    expect(r.remaining).toBe(0);
+    expect(r.recoverableTaxCents).toBe(2000); // only what was written
+    expect(net('acct-gst')).toBe(2000);
+    balanced();
+    const again = await applyTaxRestatement('t1', 2026);
+    expect(again.restated.map((x) => x.expenseId)).toEqual(['r2']);
+    expect(net('acct-gst')).toBe(3000);
+  });
+
+  it('I-2: the batch is bounded and returns `remaining`; the next call continues where it stopped', async () => {
+    three();
+    const first = await applyTaxRestatement('t1', 2026, undefined, { limit: 2 });
+    expect([first.restated.map((x) => x.expenseId), first.remaining]).toEqual([['r1', 'r2'], 1]);
+    const second = await applyTaxRestatement('t1', 2026, undefined, { limit: 2 });
+    expect([second.restated.map((x) => x.expenseId), second.remaining, second.counts.alreadyTyped]).toEqual([['r3'], 0, 2]);
+  });
+
+  it('I-2: the time budget stops the batch early with `remaining`', async () => {
+    three();
+    let t = 0;
+    const r = await applyTaxRestatement('t1', 2026, undefined, { timeBudgetMs: 10, now: () => (t += 6) });
+    expect(r.restated.length).toBe(1);
+    expect(r.remaining).toBe(2);
+  });
+
+  it('M-1: a row whose category drifted from the booked account is not restated (preview and apply agree)', async () => {
+    h.fake.state.tenantConfigs.push(AU);
+    seedLegacy('d', new Date('2026-03-01T12:00:00Z'));
+    h.fake.state.expenses[0].categoryId = 'acct-travel'; // booked to acct-meals
+    const p = await previewTaxRestatement('t1', 2026);
+    expect(p.skipped.map((s) => [s.expenseId, s.reason])).toEqual([['d', 'unsupported_shape']]);
+    const r = await applyTaxRestatement('t1', 2026);
+    expect(r.restated).toEqual([]);
+    expect(h.fake.state.entries.length).toBe(1);
+  });
+
+  it('M-2: the original entry dated in a closed month makes the row period_closed in preview, not only at apply', async () => {
+    h.fake.state.tenantConfigs.push(AU);
+    seedLegacy('m', new Date('2026-03-01T12:00:00Z'));
+    h.fake.state.entries[0].date = new Date('2026-02-10T12:00:00Z'); // a date edit that never reposted
+    h.fake.state.periods.push({ tenantId: 't1', year: 2026, month: 2, status: 'closed' });
+    const p = await previewTaxRestatement('t1', 2026);
+    expect(p.skipped.map((s) => [s.expenseId, s.reason])).toEqual([['m', 'period_closed']]);
+    expect(p.counts.eligible).toBe(0);
+  });
+
+  it('M-4: a row in another currency than the tenant\'s is skipped as currency_mismatch', async () => {
+    h.fake.state.tenantConfigs.push({ ...AU, currency: 'AUD' });
+    seedLegacy('usd', new Date('2026-03-01T12:00:00Z'));
+    seedLegacy('aud', new Date('2026-03-02T12:00:00Z'));
+    h.fake.state.expenses[0].currency = 'USD';
+    h.fake.state.expenses[1].currency = 'AUD';
+    const p = await previewTaxRestatement('t1', 2026);
+    expect(p.eligible.map((r) => r.expenseId)).toEqual(['aud']);
+    expect(p.skipped.map((s) => [s.expenseId, s.reason])).toEqual([['usd', 'currency_mismatch']]);
+  });
+});

@@ -201,12 +201,14 @@ export function createFakeLedgerDb() {
         const r = state.accounts.find((a) => matches(a, where));
         return r ? { ...r } : null;
       },
+      findMany: async ({ where }: Row = {}) => state.accounts.filter((a) => matches(a, where)).map((a) => ({ ...a })),
     },
     abVendor: {
       findFirst: async ({ where }: Row = {}) => {
         const r = state.vendors.find((v) => matches(v, where));
         return r ? { ...r } : null;
       },
+      findMany: async ({ where }: Row = {}) => state.vendors.filter((v) => matches(v, where)).map((v) => ({ ...v })),
       upsert: async ({ where, create, update }: Row) => {
         const k = where.tenantId_normalizedName;
         const r = state.vendors.find((v) => v.tenantId === k.tenantId && v.normalizedName === k.normalizedName);
