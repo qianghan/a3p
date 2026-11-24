@@ -68,12 +68,27 @@ for (const persona of ['maya', 'alex', 'sydney'] as Exclude<Persona, 'fresh'>[])
         /* best effort */
       }
     }
-    /** The journal movement of a booked expense: only the chosen category moved, suspense did not. */
-    async function expectBookedOnCategory(before: PnlSnapshot, cents: number) {
+    /**
+     * The journal movement of a booked expense: only the chosen category moved, by the NET the row itself records
+     * (amountCents − recoverableTaxCents: a GST/HST registrant's recoverable tax goes to 2100, not the category;
+     * a non-registrant's recoverable is 0/null so the category takes the gross), and suspense did not move.
+     */
+    async function expectBookedOnCategory(before: PnlSnapshot, expenseId: string, typedGrossCents: number) {
+      const row = (await getExpense(page, expenseId)).data.data as { amountCents: number; recoverableTaxCents?: number | null };
+      expect(row.amountCents, 'the row holds the gross that was entered').toBe(typedGrossCents);
+      const recoverable = row.recoverableTaxCents ?? 0;
+      expect(recoverable, 'recoverable tax is never negative or above the gross').toBeGreaterThanOrEqual(0);
+      expect(recoverable).toBeLessThan(row.amountCents);
       const after = await pnlSnapshot(page);
-      expect(movedAccounts(before, after), 'only the chosen category moved').toEqual({ [category.id]: cents });
+      expect(movedAccounts(before, after), 'only the chosen category moved, by the net').toEqual({ [category.id]: row.amountCents - recoverable });
       const susp = suspenseAccountId(after);
       if (susp) expect(movedAccounts(before, after)[susp] ?? 0, 'nothing went to suspense').toBe(0);
+    }
+    /** The one id in `after` that was not in `before` (exactly one new expense). */
+    function newId(before: string[], after: string[]): string {
+      const fresh = after.filter((id) => !before.includes(id));
+      expect(fresh, 'exactly one new expense').toHaveLength(1);
+      return fresh[0];
     }
 
     test.beforeAll(async ({ browser }, testInfo) => {
@@ -120,7 +135,7 @@ for (const persona of ['maya', 'alex', 'sydney'] as Exclude<Persona, 'fresh'>[])
       const one = await getExpense(page, res.data.data.id);
       expect(one.data.data.categoryId).toBe(category.id);
       expect(one.data.data.amountCents).toBe(dollars * 100);
-      await expectBookedOnCategory(before, dollars * 100);
+      await expectBookedOnCategory(before, res.data.data.id, dollars * 100);
     });
 
     test('the choice is remembered: the next suggestion for this vendor is that category', async () => {
@@ -146,6 +161,7 @@ for (const persona of ['maya', 'alex', 'sydney'] as Exclude<Persona, 'fresh'>[])
       test.setTimeout(150_000);
       const dollars = randomWholeDollars();
       const before = await pnlSnapshot(page);
+      const idsBefore = await idsByQuery(vendor);
       await page.setViewportSize({ width: 1280, height: 900 });
       try {
         await page.goto('/agentbook/expenses/new');
@@ -162,7 +178,7 @@ for (const persona of ['maya', 'alex', 'sydney'] as Exclude<Persona, 'fresh'>[])
         await track();
         const ids = await idsByQuery(vendor);
         expect(ids.length, 'the earlier API expense plus exactly one new one').toBe(2);
-        await expectBookedOnCategory(before, dollars * 100);
+        await expectBookedOnCategory(before, newId(idsBefore, ids), dollars * 100);
       } finally {
         await page.setViewportSize({ width: 390, height: 844 });
       }
@@ -172,6 +188,7 @@ for (const persona of ['maya', 'alex', 'sydney'] as Exclude<Persona, 'fresh'>[])
       test.setTimeout(150_000);
       const dollars = randomWholeDollars();
       const before = await pnlSnapshot(page);
+      const idsBefore = await idsByQuery(vendor);
       await page.goto('/app/capture');
       await expect(page.getByRole('heading', { name: t('mobile.capture.title') })).toBeVisible();
       await page.getByRole('button', { name: t('mobile.capture.manual') }).click();
@@ -183,7 +200,7 @@ for (const persona of ['maya', 'alex', 'sydney'] as Exclude<Persona, 'fresh'>[])
       await expect(page.getByRole('button', { name: t('mobile.capture.snap') })).toBeVisible();
       await expect.poll(async () => (await idsByQuery(vendor)).length, { timeout: 20_000 }).toBe(3);
       await track();
-      await expectBookedOnCategory(before, dollars * 100);
+      await expectBookedOnCategory(before, newId(idsBefore, await idsByQuery(vendor)), dollars * 100);
     });
 
     test("totals invariant: after cleanup the persona's books are exactly where they started", async () => {

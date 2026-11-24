@@ -1,0 +1,16 @@
+<testsuites id="" name="" tests="3" failures="0" skipped="3" errors="0" time="0.030019000000000004">
+<testsuite name="inventory-sale.spec.ts" timestamp="2026-11-24T06:08:36.314Z" hostname="" tests="3" failures="0" skipped="3" time="0" errors="0">
+<testcase name="inventory sale journey — maya › weighted-average COGS once per line, exact zero at qty 0, void restores, books back at baseline" classname="inventory-sale.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="inventory sale journey — alex › weighted-average COGS once per line, exact zero at qty 0, void restores, books back at baseline" classname="inventory-sale.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="inventory sale journey — sydney › weighted-average COGS once per line, exact zero at qty 0, void restores, books back at baseline" classname="inventory-sale.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>
