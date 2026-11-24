@@ -7,6 +7,7 @@
  * Exports a single function: handleAgentMessage(req, ctx)
  */
 
+import { restatementDisplayYear } from './restatement-chat.js';
 import { hasAddOn } from '@naap/billing';
 import { db } from './db/client.js';
 import { buildPastFilingContext } from './past-filing-context.js';
@@ -805,7 +806,7 @@ function fmtConfirmMoney(cents: number): string {
   })}`;
 }
 
-function describeDestructiveAction(classification: any, fallbackText: string, t?: (k: string, v?: Record<string, unknown>) => string, employeeJurisdiction?: string | null): string {
+export function describeDestructiveAction(classification: any, fallbackText: string, t?: (k: string, v?: Record<string, unknown>) => string, employeeJurisdiction?: string | null): string {
   const name = classification?.selectedSkill?.name || 'unknown';
   const params = classification?.extractedParams || {};
   switch (name) {
@@ -817,6 +818,11 @@ function describeDestructiveAction(classification: any, fallbackText: string, t?
       if (edit.kind === 'payFrequency') return t('agent.employee_confirm_frequency', { frequency: t(agentFrequencyLabelKey(edit.value, String(employeeJurisdiction || classification?.tenantConfig?.jurisdiction || ''))) });
       if (edit.kind === 'payRateCents') return t('agent.employee_confirm_rate');
       return t('agent.employee_confirm_generic');
+    }
+    case 'restatement-apply': {
+      // PR 2c — name the tax year the user is confirming.
+      const year = restatementDisplayYear(fallbackText, classification?.tenantConfig?.jurisdiction);
+      return t ? t('agent.restatement_confirm', { year }) : `Restate older purchases for tax year ${year}`;
     }
     case 'send-invoice':
       return params.invoiceId

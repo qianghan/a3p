@@ -24,6 +24,15 @@ export const QUERY_STOCK_PATTERN =
 /** PR 5B — cost of goods sold questions ("what's my COGS this quarter?"). */
 export const QUERY_COGS_PATTERN =
   "\\bcogs\\b|\\bcost of (goods( sold)?|sales)\\b|co[uû]ts? des (marchandises|ventes)|\\bCMV\\b|销售成本|销货成本|商品成本";
+/**
+ * PR 2c — opt-in tax restatement of legacy gross purchases. APPLY phrasings
+ * (a verb on the restatement, or "restate my/the …") take the confirmBefore
+ * skill; everything else that names restatement previews.
+ */
+export const RESTATEMENT_APPLY_PATTERN =
+  "\\b(apply|run|do|go ahead with|proceed with)\\b.{0,30}\\brestat|\\brestate (my|the|older|old|legacy|past|all)\\b|\\bretraite[rz] (ma|mes|la|les|tous)\\b|\\b(appliquer|effectuer|lancer)\\b.{0,20}\\bretraitement|应用重述|执行重述|重述.{0,12}(GST|HST|税)";
+export const RESTATEMENT_PREVIEW_PATTERN =
+  "\\brestat(e|ement|ing)\\b|\\bretrait(ement|er)\\b|重述";
 /** PR 4e — "set up next pay runs", "generate draft pay runs". */
 export const PAY_RUN_DRAFTS_PATTERN =
   "\\b(set ?up|generate|create|prepare|draft)\\b.{0,30}\\bpay ?runs?\\b|\\bnext pay ?runs?\\b|\\bdraft pay ?runs?\\b";
@@ -182,7 +191,7 @@ export const BUILT_IN_SKILLS = [
     // and query-finance's bare 'tax' trigger won the race against the
     // then-newer start-tax-fast-track row (no orderBy — first match in
     // array order wins). Verified live in production after PR-3's deploy.
-    excludePatterns: [...TAX_FAST_TRACK_TRIGGER_PATTERNS, 'tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
+    excludePatterns: [...TAX_FAST_TRACK_TRIGGER_PATTERNS, RESTATEMENT_PREVIEW_PATTERN, 'tax.*estimate|how much.*tax|tax.*owe|tax.*situation|tax.*liability|quarterly.*tax|quarterly.*payment|estimated.*payment|deduction|write.*off|tax.*saving|tax.*break|p.?&?.?l|profit.*loss|income.*statement|net.*income|how.*much.*profit|balance.*sheet|net.*worth|equity|cash.*flow|cash.*projection|runway|burn.*rate|how long.*cash.*last|financial.*summary|financial.*snapshot|how.*doing.*financially|financial.*health|money.*move|action.*item|what.*should.*do|advice.*money|reconcil|unmatched.*transaction|bank.*match|bank.*status|tax.*fil|start.*fil|file.*tax|review.*t[12]|t2125|schedule.*1|gst.*return|tax.*slip|validate.*tax|check.*tax.*error|verify.*return|tax.*ready|export.*tax|generate.*tax.*form|download.*return|create.*tax.*file|print.*tax|pdf.*tax|submit.*cra|efile|netfile|filing.*status.*cra|scholarship|fellowship|grant.*taxable|is.*grant.*tax|t2202|1098-?t|aotc|american opportunity|lifetime learning|tuition.*credit|education.*credit|\\bresp\\b|\\b529\\b|nonresident alien|non-resident alien|1040-?nr|sprintax|glacier tax|1042-?s|fica exempt|international student.*tax|tax treaty'],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     // INTERNAL, like general-question. This used to name
     // POST /api/v1/agentbook-core/ask — an Express route only `tsx
@@ -284,7 +293,7 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     triggerPatterns: ['review', 'pending.*review', 'need.*attention', 'flagged'],
     // Tax-form review utterances have dedicated CA tax skills (ca-t2125-review,
     // ca-t1-review, ca-gst-hst-review, ca-schedule-1-review).
-    excludePatterns: ['review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst', 'books|cpa|accountant'],
+    excludePatterns: [RESTATEMENT_PREVIEW_PATTERN, 'review.*t[12]|t2125|t1.*general|t1.*review|gst.*review|hst.*review|schedule.*1|review.*gst|review.*hst', 'books|cpa|accountant'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-expense/review-queue' },
   },
@@ -976,6 +985,28 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     triggerPatterns: ['roommate', 'find.*roommate', 'compatible.*(student|roommate)', 'match.*roommate'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-housing/roommate/matches' },
+  },
+  {
+    // PR 2c: what restating a tax year's legacy gross purchases would do
+    // (same reading as GET /agentbook-tax/restatement). Read-only.
+    name: 'restatement-preview',
+    description: 'Preview the opt-in GST/HST restatement of older purchases for a tax year — how many legacy purchases still carry recoverable GST/HST in expense and how the P&L would change.',
+    category: 'tax',
+    triggerPatterns: [RESTATEMENT_PREVIEW_PATTERN],
+    excludePatterns: [RESTATEMENT_APPLY_PATTERN],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    // PR 2c: apply the restatement (POST /agentbook-tax/restatement). It
+    // re-books entries, so the brain asks for confirmation first.
+    name: 'restatement-apply',
+    description: 'Apply the opt-in GST/HST restatement of older purchases for a tax year (moves recoverable tax out of expenses; closed months are skipped).',
+    category: 'tax',
+    triggerPatterns: [RESTATEMENT_APPLY_PATTERN],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+    confirmBefore: true,
   },
   {
     // PR 5B: COGS for a period (this quarter by default; this month / this

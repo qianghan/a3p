@@ -5,6 +5,7 @@
  */
 import { loadUnpaidBills, outstandingCents, summarizeUnpaidBills, type BillAmountLike } from './bill-amounts.js';
 import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase.js';
+import { runRestatementSkill } from './restatement-chat.js';
 import 'dotenv/config';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -4890,6 +4891,28 @@ async function _executeClassificationCore(
     } catch (err) {
       console.error('[payroll-status] error:', err);
       return { selectedSkill, extractedParams, confidence: 0, skillUsed: 'payroll-status', skillResponse: null, responseData: { message: "I couldn't load payroll. Please try again.", actions: [], chartData: null, skillUsed: 'payroll-status', confidence: 0, latencyMs: Date.now() - startTime } };
+    }
+  }
+
+  // INTERNAL handlers: restatement-preview / restatement-apply (PR 2c). Both
+  // call the production Next route the Settings card uses; apply is
+  // confirmBefore, so it only runs after the user said yes to the plan.
+  if (selectedSkill.name === 'restatement-preview' || selectedSkill.name === 'restatement-apply') {
+    const name = selectedSkill.name;
+    try {
+      const { message, data } = await runRestatementSkill({
+        mode: name === 'restatement-apply' ? 'apply' : 'preview',
+        text,
+        baseUrl: resolveTaxBaseUrl(),
+        headers: brainHeaders(tenantId),
+        t: t as (k: string, v?: Record<string, unknown>) => string,
+        money: (c: number) => tenantMoneyCompact(c),
+      });
+      await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: name } });
+      return { selectedSkill, extractedParams, confidence, skillUsed: name, skillResponse: { data }, responseData: { message, actions: [], chartData: null, skillUsed: name, confidence, latencyMs: Date.now() - startTime } };
+    } catch (err) {
+      console.error(`[${name}] error:`, err);
+      return { selectedSkill, extractedParams, confidence: 0, skillUsed: name, skillResponse: null, responseData: { message: t('skill.restatement_load_failed'), actions: [], chartData: null, skillUsed: name, confidence: 0, latencyMs: Date.now() - startTime } };
     }
   }
 

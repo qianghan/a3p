@@ -27,6 +27,20 @@ const route = async (text: string) => {
  * added in the PR 4e / 5A programme through the real pipeline.
  */
 const NEW_SKILLS: Array<[string, string]> = [
+  // restatement-preview / restatement-apply (PR 2c)
+  ['Preview the tax restatement for 2026', 'restatement-preview'],
+  ['What would restating my 2026 purchases change?', 'restatement-preview'],
+  ['How much GST would the restatement move?', 'restatement-preview'],
+  ['Restate my GST for 2026', 'restatement-apply'],
+  ['Apply the restatement for 2026', 'restatement-apply'],
+  ['Aperçu du retraitement de la TPS pour 2026', 'restatement-preview'],
+  ['Que changerait le retraitement de 2026 ?', 'restatement-preview'],
+  ['Retraiter ma TPS pour 2026', 'restatement-apply'],
+  ['Appliquer le retraitement pour 2026', 'restatement-apply'],
+  ['预览 2026 年的重述', 'restatement-preview'],
+  ['重述会改变多少？', 'restatement-preview'],
+  ['重述 2026 年的 GST', 'restatement-apply'],
+  ['应用重述', 'restatement-apply'],
   // query-cogs (PR 5B)
   ["What's my COGS this quarter?", 'query-cogs'],
   ['What is my cost of goods sold this year?', 'query-cogs'],

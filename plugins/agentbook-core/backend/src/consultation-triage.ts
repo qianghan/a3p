@@ -155,6 +155,10 @@ const DATA_QUESTION = [
   /bas en stock|rupture de stock|\ben stock\b|stock disponible|niveaux? de stock|valeur (?:de |du )?(?:mon |l['’])?(?:inventaire|stock)|inventaire[^.?!]{0,20}vaut|commander (?:à|a) nouveau|r[ée]approvisionn|r[ée]assort/i,
   /库存|缺货|断货|补货|还剩多少/,
 
+  // Tax restatement (PR 2c): "What would restating 2026 change?" is a figure
+  // from the user's own books. Mirrors RESTATEMENT_PREVIEW_PATTERN.
+  /\brestat(?:e|ement|ing)\b|\bretrait(?:ement|er)\b|重述/i,
+
   // COGS (PR 5B): "What's my COGS this quarter?" is a figure from the user's
   // own books. Mirrors QUERY_COGS_PATTERN in built-in-skills.ts.
   /\bcogs\b|\bcost of (?:goods(?: sold)?|sales)\b|co[uû]ts? des (?:marchandises|ventes)|销售成本|销货成本|商品成本/i,
