@@ -27,6 +27,14 @@ const route = async (text: string) => {
  * added in the PR 4e / 5A programme through the real pipeline.
  */
 const NEW_SKILLS: Array<[string, string]> = [
+  // query-cogs (PR 5B)
+  ["What's my COGS this quarter?", 'query-cogs'],
+  ['What is my cost of goods sold this year?', 'query-cogs'],
+  ['How much was cost of sales last quarter?', 'query-cogs'],
+  ['Quel est mon coût des marchandises vendues ce trimestre ?', 'query-cogs'],
+  ['Quels sont mes coûts des marchandises vendues cette année ?', 'query-cogs'],
+  ['本季度的销售成本是多少？', 'query-cogs'],
+  ['今年销货成本多少？', 'query-cogs'],
   // query-stock (PR 5A)
   ['Qu’est-ce qui est bas en stock ?', 'query-stock'],
   ["Qu'est-ce qui est en rupture de stock ?", 'query-stock'],

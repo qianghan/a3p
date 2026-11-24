@@ -21,6 +21,9 @@ export const EMPLOYEE_QUERY_PATTERN =
  */
 export const QUERY_STOCK_PATTERN =
   "out of stock|low (on |in )?stock|stock (value|count)|(items?|products?|stock)\\b.{0,20}\\brunning low|bas en stock|rupture de stock|\\ben stock\\b|stock disponible|niveaux? de stock|inventaire|commander (à|a) nouveau|r[ée]approvisionn|库存|缺货|断货|补货";
+/** PR 5B — cost of goods sold questions ("what's my COGS this quarter?"). */
+export const QUERY_COGS_PATTERN =
+  "\\bcogs\\b|\\bcost of (goods( sold)?|sales)\\b|co[uû]ts? des (marchandises|ventes)|\\bCMV\\b|销售成本|销货成本|商品成本";
 /** PR 4e — "set up next pay runs", "generate draft pay runs". */
 export const PAY_RUN_DRAFTS_PATTERN =
   "\\b(set ?up|generate|create|prepare|draft)\\b.{0,30}\\bpay ?runs?\\b|\\bnext pay ?runs?\\b|\\bdraft pay ?runs?\\b";
@@ -973,6 +976,16 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     triggerPatterns: ['roommate', 'find.*roommate', 'compatible.*(student|roommate)', 'match.*roommate'],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-housing/roommate/matches' },
+  },
+  {
+    // PR 5B: COGS for a period (this quarter by default; this month / this
+    // year / last quarter when asked). Same reading as GET inventory/cogs.
+    name: 'query-cogs',
+    description: 'Answer cost of goods sold (COGS) questions — how much stock cost was sold this quarter, month or year.',
+    category: 'bookkeeping',
+    triggerPatterns: [QUERY_COGS_PATTERN],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
   },
   {
     // PR 5A: stock on hand + low-stock alert. Gated on trackInventory (the

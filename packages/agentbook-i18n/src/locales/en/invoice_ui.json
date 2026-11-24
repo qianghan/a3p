@@ -103,5 +103,8 @@
   "stop": "Stop",
   "start_timer": "Start Timer",
   "download_pdf": "Download PDF",
-  "decline": "Decline"
+  "decline": "Decline",
+  "inventory_item": "Inventory item",
+  "no_inventory_item": "None (not a stocked item)",
+  "in_stock_count": "{qty} in stock"
 }

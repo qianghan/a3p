@@ -103,5 +103,8 @@
   "stop": "停止",
   "start_timer": "开始计时",
   "download_pdf": "下载 PDF",
-  "decline": "拒绝"
+  "decline": "拒绝",
+  "inventory_item": "库存商品",
+  "no_inventory_item": "无（非库存商品）",
+  "in_stock_count": "库存 {qty}"
 }
