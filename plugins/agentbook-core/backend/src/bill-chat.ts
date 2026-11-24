@@ -172,12 +172,17 @@ const norm = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g
 export function chooseBillToPay(text: string, bills: OpenBillLike[]): OpenBillLike[] {
   const unpaid = bills.filter((b) => b.status === 'open' || b.status === 'partial');
   const msg = ` ${norm(text)} `;
-  const hits = unpaid.filter((b) => {
+  // A bill whose full vendor name is in the message beats a first-word match:
+  // "Pay the Hydro One bill" must not also offer "Hydro Ottawa".
+  const exact = unpaid.filter((b) => {
     const v = norm(b.vendorName);
-    if (!v) return false;
-    if (msg.includes(` ${v} `)) return true;
-    const first = v.split(' ')[0];
-    return first.length >= 3 && msg.includes(` ${first}`);
+    return !!v && msg.includes(` ${v} `);
+  });
+  if (exact.length) return exact;
+  const hits = unpaid.filter((b) => {
+    const first = norm(b.vendorName).split(' ')[0];
+    // Whole word only: " e2e " must not match "e2ebill…".
+    return first.length >= 3 && msg.includes(` ${first} `);
   });
   if (hits.length) return hits;
   const vendor = parseBillVendor(text);
