@@ -21,6 +21,7 @@ import { computeInvoiceTax } from '@/lib/agentbook-invoice-tax';
 import { validateInvoiceLines, validateTaxRateOverride } from '@/lib/money-validation';
 import { ensureChartOfAccounts } from '@/lib/agentbook-chart-of-accounts';
 import { publicErrorMessage } from '@/lib/api-error';
+import { postInvoiceCogs, assertItemsOwned, InventoryError } from '@/lib/inventory';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -80,6 +81,8 @@ interface InvoiceLine {
   description?: string;
   quantity?: number;
   rateCents: number;
+  /** PR 5B: inventory item sold on this line (tenant-owned; no FK). */
+  itemId?: string | null;
 }
 
 interface CreateInvoiceBody {
@@ -149,8 +152,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           return { status: 404, body: { success: false, error: 'Client not found' } };
         }
 
-        const lineItems = validated.lines.map((l) => ({
+        // PR 5B: optional itemId per line (no FK) — must be this tenant's item.
+        const lineItemIds = lines.map((l) => (typeof l?.itemId === 'string' && l.itemId ? l.itemId : null));
+        const ownedIds = lineItemIds.filter((x): x is string => !!x);
+        if (ownedIds.length > 0) {
+          try {
+            await assertItemsOwned(db, tenantId, ownedIds);
+          } catch {
+            return { status: 404, body: { success: false, error: 'Item not found' } };
+          }
+        }
+
+        const lineItems = validated.lines.map((l, i) => ({
           tenantId, // G-009
+          itemId: lineItemIds[i],
           description: l.description,
           quantity: l.quantity,
           rateCents: l.rateCents,
@@ -254,6 +269,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               include: { lines: true },
             });
 
+            // PR 5B: COGS posts when the invoice posts revenue (here, creation):
+            // DR cogs | CR 1500 per item line, stock_sale / line.id.
+            await postInvoiceCogs(tx, tenantId, {
+              invoiceNumber,
+              date: new Date(issuedDate || Date.now()),
+              lines: inv.lines,
+            });
+
             if (taxResult.components.length > 0) {
               const taxTenantConfig = await tx.abTenantConfig.findUnique({
                 where: { userId: tenantId },
@@ -340,6 +363,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         } catch (err: unknown) {
           if (typeof err === 'object' && err !== null && 'code' in err && (err as { code: string }).code === 'P2002') {
             return { status: 409, body: { success: false, error: 'Invoice number already exists' } };
+          }
+          // Coded inventory refusals (closed period, …) keep their status.
+          const coded = err as { status?: number; code?: string };
+          if (err instanceof InventoryError && typeof coded.status === 'number') {
+            return { status: coded.status, body: { success: false, code: coded.code, error: publicErrorMessage(err) } };
           }
           throw err;
         }

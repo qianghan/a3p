@@ -239,33 +239,54 @@ async function trueUpAfterPurchase(tx: InventoryDb, tenantId: string, itemId: st
 /* ----------------------------------------------------------- purchase hooks */
 
 /**
+ * A bill line's purchase generations. An at_payment bill can be paid, have the
+ * payment voided, and be paid again: each payment is a new purchase movement
+ * (`bill_line` / line.id, then line.id:1, line.id:2 …) and each void reverses
+ * the latest one (`bill_line_void`, same numbering). Without generations the
+ * second payment's DR 1500 found the first movement as a "replay" and the
+ * sub-ledger drifted from 1500 (found by the PR 5B journal property test).
+ */
+async function purchaseGenerations(tx: InventoryDb, tenantId: string, billLineId: string) {
+  const own = (m: Row) => m.sourceId === billLineId || String(m.sourceId).startsWith(`${billLineId}:`);
+  const all: Row[] = ((await tx.abStockMovement.findMany({ where: { tenantId } })) || []).filter(own);
+  const byGen = (a: Row, b: Row) => genOf(a.sourceId) - genOf(b.sourceId);
+  const genOf = (sid: string) => (sid.includes(':') ? Number(sid.slice(sid.lastIndexOf(':') + 1)) : 0);
+  return {
+    purchases: all.filter((m) => m.sourceType === 'bill_line').sort(byGen),
+    voids: all.filter((m) => m.sourceType === 'bill_line_void').sort(byGen),
+    key: (gen: number) => (gen === 0 ? billLineId : `${billLineId}:${gen}`),
+  };
+}
+
+/**
  * A bill line with itemId was booked (its DR 1500 is part of `journalEntryId`).
- * Call inside the bill's transaction. Idempotent per bill line.
+ * Call inside the bill's transaction. Idempotent per live purchase generation.
  */
 export async function recordPurchaseMovement(tx: InventoryDb, tenantId: string, p: { itemId: string; billLineId: string; qty: unknown; valueCents: number; date: Date; journalEntryId: string | null }): Promise<Row> {
-  const hit = await findMovement(tx, tenantId, 'bill_line', p.billLineId);
-  if (hit) return hit;
+  const g = await purchaseGenerations(tx, tenantId, p.billLineId);
+  if (g.purchases.length > g.voids.length) return g.purchases[g.purchases.length - 1]; // live purchase: replay
+  const sourceId = g.key(g.purchases.length);
   const qtyUnits = toUnits(p.qty);
   if (qtyUnits <= 0) throw new InventoryError(400, 'invalid_qty', 'A purchase quantity must be positive');
   const before = await tx.abInventoryItem.findFirst({ where: { id: p.itemId, tenantId } });
   if (!before) throw new InventoryError(404, 'item_not_found');
   const movement = await applyMovement(tx, tenantId, {
     itemId: p.itemId, date: p.date, type: 'purchase', qtyUnits, valueCents: p.valueCents,
-    sourceType: 'bill_line', sourceId: p.billLineId, journalEntryId: p.journalEntryId,
+    sourceType: 'bill_line', sourceId, journalEntryId: p.journalEntryId,
   });
-  await trueUpAfterPurchase(tx, tenantId, p.itemId, toUnits(before.onHandQty), { qtyUnits, valueCents: p.valueCents, date: p.date, key: `bill_line:${p.billLineId}` });
+  await trueUpAfterPurchase(tx, tenantId, p.itemId, toUnits(before.onHandQty), { qtyUnits, valueCents: p.valueCents, date: p.date, key: `bill_line:${sourceId}` });
   return movement;
 }
 
-/** Reverse a bill line's purchase exactly (qty and value as booked). Inside the void's transaction. */
+/** Reverse a bill line's live purchase exactly (qty and value as booked). Inside the void's transaction. */
 export async function reversePurchaseMovement(tx: InventoryDb, tenantId: string, p: { billLineId: string; date: Date; journalEntryId: string | null }): Promise<Row | null> {
-  const orig = await findMovement(tx, tenantId, 'bill_line', p.billLineId);
-  if (!orig) return null;
-  const hit = await findMovement(tx, tenantId, 'bill_line_void', p.billLineId);
-  if (hit) return hit;
+  const g = await purchaseGenerations(tx, tenantId, p.billLineId);
+  if (g.purchases.length === 0) return null;
+  if (g.voids.length >= g.purchases.length) return g.voids[g.voids.length - 1]; // already reversed: replay
+  const orig = g.purchases[g.voids.length];
   return applyMovement(tx, tenantId, {
     itemId: orig.itemId, date: p.date, type: 'purchase_void', qtyUnits: -toUnits(orig.qty), valueCents: -orig.valueCents,
-    sourceType: 'bill_line_void', sourceId: p.billLineId, journalEntryId: p.journalEntryId,
+    sourceType: 'bill_line_void', sourceId: g.key(g.voids.length), journalEntryId: p.journalEntryId,
   });
 }
 
@@ -387,7 +408,10 @@ export async function relieveStock(tx: InventoryDb, tenantId: string, input: { i
   const item = await tx.abInventoryItem.findFirst({ where: { id: input.itemId, tenantId } });
   if (!item) throw new InventoryError(404, 'item_not_found');
   const qty = toUnits(item.onHandQty);
-  const value = reliefValueCents(qty, item.onHandValueCents, outUnits);
+  // Never relieve a negative value: the movement and the journal must move 1500
+  // by the same amount (a negative relief used to change the sub-ledger with no
+  // entry — found by the PR 5B journal property test).
+  const value = Math.max(0, reliefValueCents(qty, item.onHandValueCents, outUnits));
   let entryId: string | null = null;
   if (value > 0) {
     const inv = await resolveAccountByRole(tx, tenantId, 'inventory');
@@ -403,6 +427,112 @@ export async function relieveStock(tx: InventoryDb, tenantId: string, input: { i
     sourceType: input.sourceType, sourceId: input.sourceId, journalEntryId: entryId,
   });
   return { movement, valueCents: value, negative: qty - outUnits < 0 };
+}
+
+/* ------------------------------------------------------------- 5B: sales */
+
+/** An invoice line as the sale hooks need it (quantity is the Float column). */
+export interface SaleLine { id: string; itemId?: string | null; quantity: unknown }
+
+/** Sale-family movements for one invoice line (original, edit reposts, edit reversals, void). */
+async function lineSaleMovements(tx: InventoryDb, tenantId: string, lineId: string): Promise<Row[]> {
+  const all: Row[] = (await tx.abStockMovement.findMany({ where: { tenantId } })) || [];
+  const fam = new Set(['stock_sale', 'stock_sale_edit_reverse', 'stock_sale_void']);
+  return all.filter((m) => fam.has(m.sourceType) && (m.sourceId === lineId || String(m.sourceId).startsWith(`${lineId}:`)));
+}
+
+/** Put a line's net sold stock back at exactly the value it took out: DR 1500 | CR cogs. */
+async function returnLineStock(tx: InventoryDb, tenantId: string, lineId: string, key: { sourceType: string; sourceId: string }, date: Date, memo: string): Promise<Row | null> {
+  const hit = await findMovement(tx, tenantId, key.sourceType, key.sourceId);
+  if (hit) return hit;
+  const ms = await lineSaleMovements(tx, tenantId, lineId);
+  if (ms.length === 0) return null;
+  const outUnits = -ms.reduce((s, m) => s + toUnits(m.qty), 0);
+  const outValue = -ms.reduce((s, m) => s + m.valueCents, 0);
+  if (outUnits === 0 && outValue === 0) return null;
+  let entryId: string | null = null;
+  if (outValue !== 0) {
+    const inv = await resolveAccountByRole(tx, tenantId, 'inventory');
+    const cogs = await resolveAccountByRole(tx, tenantId, 'cogs');
+    const abs = Math.abs(outValue);
+    entryId = await appendBalancedEntry(tx, tenantId, { date, memo, ...key }, outValue > 0
+      ? [{ accountId: inv.id, debitCents: abs, creditCents: 0, description: memo }, { accountId: cogs.id, debitCents: 0, creditCents: abs, description: memo }]
+      : [{ accountId: cogs.id, debitCents: abs, creditCents: 0, description: memo }, { accountId: inv.id, debitCents: 0, creditCents: abs, description: memo }]);
+  }
+  return applyMovement(tx, tenantId, {
+    itemId: ms[0].itemId, date, type: key.sourceType, qtyUnits: outUnits, valueCents: outValue, ...key, journalEntryId: entryId,
+  });
+}
+
+/**
+ * Invoice created (revenue posted): relieve stock for every line that has an
+ * itemId — `stock_sale` / line.id, DR cogs | CR 1500. Only when the tenant
+ * tracks inventory. Call inside the invoice's transaction. Idempotent per line.
+ */
+export async function postInvoiceCogs(tx: InventoryDb, tenantId: string, input: { invoiceNumber: string; date: Date; lines: SaleLine[] }): Promise<{ lineId: string; valueCents: number; negative: boolean }[]> {
+  const itemLines = (input.lines ?? []).filter((l) => l.itemId);
+  if (itemLines.length === 0 || !(await inventoryEnabled(tx, tenantId))) return [];
+  const out = [];
+  for (const l of itemLines) {
+    const r = await relieveStock(tx, tenantId, {
+      itemId: l.itemId!, qty: l.quantity, date: input.date, sourceType: 'stock_sale', sourceId: l.id,
+      memo: `Cost of goods sold: Invoice ${input.invoiceNumber}`,
+    });
+    out.push({ lineId: l.id, valueCents: r.valueCents, negative: r.negative });
+  }
+  return out;
+}
+
+/** Invoice voided: return each item line's net sold stock (`stock_sale_void` / line.id). */
+export async function voidInvoiceCogs(tx: InventoryDb, tenantId: string, input: { invoiceNumber: string; date: Date; lineIds: string[] }): Promise<Row[]> {
+  const out: Row[] = [];
+  for (const id of input.lineIds) {
+    const m = await returnLineStock(tx, tenantId, id, { sourceType: 'stock_sale_void', sourceId: id }, input.date, `Void COGS: Invoice ${input.invoiceNumber}`);
+    if (m) out.push(m);
+  }
+  return out;
+}
+
+/**
+ * An item line's quantity was edited (revision `rev`): reverse what the line
+ * currently has out (`stock_sale_edit_reverse` / line:rev), then relieve the
+ * new quantity (`stock_sale` / line:rev).
+ */
+export async function repostInvoiceLineCogs(tx: InventoryDb, tenantId: string, input: { invoiceNumber: string; date: Date; line: SaleLine; rev: number }): Promise<{ valueCents: number; negative: boolean } | null> {
+  if (!input.line.itemId || !(await inventoryEnabled(tx, tenantId))) return null;
+  const sid = `${input.line.id}:${input.rev}`;
+  await returnLineStock(tx, tenantId, input.line.id, { sourceType: 'stock_sale_edit_reverse', sourceId: sid }, input.date, `Reverse COGS (edit): Invoice ${input.invoiceNumber}`);
+  const r = await relieveStock(tx, tenantId, {
+    itemId: input.line.itemId, qty: input.line.quantity, date: input.date, sourceType: 'stock_sale', sourceId: sid,
+    memo: `Cost of goods sold: Invoice ${input.invoiceNumber}`,
+  });
+  return { valueCents: r.valueCents, negative: r.negative };
+}
+
+/** Every itemId exists for this tenant (no FK on AbInvoiceLine.itemId) — else 404. */
+export async function assertItemsOwned(db: InventoryDb, tenantId: string, itemIds: string[]): Promise<void> {
+  for (const id of new Set(itemIds)) await loadItem(db, tenantId, id);
+}
+
+/**
+ * COGS by period: net sale-family movement value per month/quarter in [from, to).
+ * Sales add, voids/edit reversals subtract; true-ups (stock_adjust) are excluded
+ * here and stay visible on the P&L's COGS account.
+ */
+export async function cogsByPeriod(db: InventoryDb, tenantId: string, input: { from: Date; to: Date; granularity: 'month' | 'quarter' }) {
+  const all: Row[] = (await db.abStockMovement.findMany({ where: { tenantId } })) || [];
+  const fam = new Set(['stock_sale', 'stock_sale_edit_reverse', 'stock_sale_void']);
+  const buckets = new Map<string, number>();
+  for (const m of all) {
+    if (!fam.has(m.sourceType)) continue;
+    const d = new Date(m.date);
+    if (d < input.from || d >= input.to) continue;
+    const y = d.getUTCFullYear();
+    const key = input.granularity === 'quarter' ? `${y}-Q${Math.floor(d.getUTCMonth() / 3) + 1}` : `${y}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    buckets.set(key, (buckets.get(key) ?? 0) - m.valueCents);
+  }
+  const periods = [...buckets.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([period, cogsCents]) => ({ period, cogsCents }));
+  return { periods, totalCents: periods.reduce((s, p) => s + p.cogsCents, 0) };
 }
 
 /* ------------------------------------------------------------------- views */

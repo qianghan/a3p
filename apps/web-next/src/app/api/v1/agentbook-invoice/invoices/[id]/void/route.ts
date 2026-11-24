@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { publicErrorMessage } from '@/lib/api-error';
+import { voidInvoiceCogs, InventoryError } from '@/lib/inventory';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export async function POST(
 
     const invoice = await db.abInvoice.findFirst({
       where: { id, tenantId },
-      include: { payments: true },
+      include: { payments: true, lines: true },
     });
     if (!invoice) {
       return NextResponse.json({ success: false, error: 'Invoice not found' }, { status: 404 });
@@ -92,6 +93,13 @@ export async function POST(
         });
       }
 
+      // PR 5B: return sold stock at the value it left with (stock_sale_void / line.id).
+      await voidInvoiceCogs(tx, tenantId, {
+        invoiceNumber: invoice.number,
+        date: new Date(),
+        lineIds: (invoice.lines ?? []).filter((l) => l.itemId).map((l) => l.id),
+      });
+
       const inv = await tx.abInvoice.update({
         where: { id: invoice.id },
         data: { status: 'void' },
@@ -122,6 +130,9 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: updated });
   } catch (err) {
+    if (err instanceof InventoryError) {
+      return NextResponse.json({ success: false, code: err.code, error: publicErrorMessage(err) }, { status: err.status });
+    }
     console.error('[agentbook-invoice/invoices/:id/void] failed:', err);
     return NextResponse.json(
       { success: false, error: publicErrorMessage(err) },
