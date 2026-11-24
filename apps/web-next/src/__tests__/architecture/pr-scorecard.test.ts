@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   summarizeVitest, strictStatus, goalGate, regressionGate, touchedGate, docsGate, ciGate, checklistStatus,
-  validateManifest, verdict, parseTsc, tscGate, renderReport, type Gate, type Manifest,
+  validateManifest, verdict, acceptGate, type VitestSummary, parseTsc, tscGate, renderReport, type Gate, type Manifest,
 } from '../../../../../tests/scorecard/lib';
 
 const report = (files: Record<string, string[]>) => ({
@@ -162,5 +162,39 @@ describe('verdict / renderReport', () => {
     const row = md.split('\n').find((l) => l.startsWith('| X'))!;
     expect(row.match(/(?<!\\)\|/g)!.length).toBe(6); // 5 columns + trailing = 6 unescaped pipes
     expect(md).toContain('**Verdict: NO-GO**');
+  });
+});
+
+describe('acceptGate — auditable accepted gate for load-timeout failures', () => {
+  const acc = { reason: 'x'.repeat(40), approvedBy: 'user' };
+  const raw = { status: 'fail' as const, evidence: '1 failed' };
+  const sum = (msg: string, file = '/r/apps/web-next/src/a.test.ts'): VitestSummary => ({ total: 10, passed: 9, failed: 1, skipped: 0, files: { [file]: { passed: 0, failed: 1, skipped: 0, failureMessages: [msg] } } });
+  const okRun = () => ({ total: 3, passed: 3, failed: 0, skipped: 0, files: {} });
+  const badRun = () => ({ total: 3, passed: 2, failed: 1, skipped: 0, files: {} });
+  const timeout = 'Error: Test timed out in 5000ms';
+
+  it('all conditions met -> accepted, verdict passes, rendered ACCEPTED', () => {
+    const r = acceptGate(raw, acc, sum(timeout), ['other.ts'], okRun);
+    expect(r.status).toBe('accepted');
+    const g: Gate = { ...gate('accepted'), ...r };
+    expect(verdict('pre', [g])).toBe('MERGE-READY');
+    expect(renderReport({ id: 'p', title: 'T' }, 'pre', [g], { commit: 'a', runAt: 'n' })).toContain('ACCEPTED');
+  });
+  it('non-timeout failure stays FAIL', () => expect(acceptGate(raw, acc, sum('expected 1 to be 2'), [], okRun).evidence).toContain('non-timeout'));
+  it('failing file changed by the PR stays FAIL', () => {
+    const r = acceptGate(raw, acc, sum(timeout), ['apps/web-next/src/a.test.ts'], okRun);
+    expect(r.status).toBe('fail'); expect(r.evidence).toContain('changed by this PR');
+  });
+  it('isolation re-run failure stays FAIL', () => expect(acceptGate(raw, acc, sum(timeout), [], badRun).evidence).toContain('isolation re-run failed'));
+  it('no acceptance entry, or a raw PASS, is untouched', () => {
+    expect(acceptGate(raw, undefined, sum(timeout), [], okRun).status).toBe('fail');
+    expect(acceptGate({ status: 'pass', evidence: 'ok' }, acc, sum(timeout), [], badRun).status).toBe('pass');
+  });
+  it('validateManifest: only R2/R3 and reason >= 40 chars', () => {
+    const m: Manifest = { id: 'p', title: 'T', goals: [{ id: 'G', text: 't', tests: ['a'] }], ux: { checklist: 'c' }, launch: { docs: ['d'], rollback: 'r', prodPlaywright: ['e'] } };
+    const a = { reason: 'x'.repeat(40), isolationEvidence: 'ok', approvedBy: 'u' };
+    expect(validateManifest({ ...m, acceptedGates: { R3: a, R2: a } }, () => true)).toEqual([]);
+    expect(validateManifest({ ...m, acceptedGates: { L1: a } }, () => true).join()).toContain('only R3/R2');
+    expect(validateManifest({ ...m, acceptedGates: { R3: { ...a, reason: 'short' } } }, () => true).join()).toContain('40 characters');
   });
 });

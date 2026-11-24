@@ -16,7 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { runPlaywright as playwright, runVitest as vitest, sh as shell } from './exec';
 import {
-  checklistStatus, ciGate, goalGate, parseTsc, tscGate, regressionGate, renderReport, strictStatus, summarizeVitest, touchedGate, docsGate,
+  acceptGate, checklistStatus, ciGate, goalGate, parseTsc, tscGate, regressionGate, renderReport, strictStatus, summarizeVitest, touchedGate, docsGate,
   validateManifest, verdict, type Gate, type Group, type Manifest, type Phase, type VitestSummary,
 } from './lib';
 
@@ -67,15 +67,21 @@ if (PHASE === 'pre') {
   const tc = sh('npx', ['tsc', '--noEmit'], join(ROOT, 'apps/web-next'));
   add('R1', 'R', 'pre', 'Typecheck: no new errors', 'no file has more TypeScript errors than on main (CI typecheck is non-blocking)', tc.out.includes('error TS') || tc.code === 0 ? tscGate(parseTsc(tc.out), baseline.tscByFile) : { status: 'fail', evidence: `tsc did not run: ${tail(tc.out)}` });
   const core = runVitest([...new Set([...common.regressionCore, ...(manifest.regression?.vitest ?? [])])], 'regression-core');
-  add('R2', 'R', 'pre', 'Core ledger/tax/payroll guards', 'books, tax and payroll invariants still hold', { status: strictStatus(core), evidence: `${core.passed} passed, ${core.failed} failed, ${core.skipped} skipped` });
+  const changed = sh('git', ['diff', '--name-only', 'origin/main...HEAD']).out.split('\n').filter(Boolean);
+  const rerunAlone = (f: string) => { const rel = relative(ROOT, f); return runVitest([rel.startsWith('..') ? f : rel], `isolation-${rel.replace(/[^\w]/g, '_')}`); };
+  const accepted = manifest.acceptedGates ?? {};
+  add('R2', 'R', 'pre', 'Core ledger/tax/payroll guards', 'books, tax and payroll invariants still hold', acceptGate({ status: strictStatus(core), evidence: `${core.passed} passed, ${core.failed} failed, ${core.skipped} skipped` }, accepted.R2, core, changed, rerunAlone));
   const reuse = opt('--reuse-full');
   if (args.includes('--skip-full') && !reuse) {
     add('R3', 'R', 'pre', 'Full suite vs floor', 'no failures, no tests removed, no new skips', { status: 'pending', evidence: 'full suite not run (--skip-full)' });
   } else {
     const file = reuse ?? join(RESULTS, `${manifest.id}.full.json`);
     if (!reuse) sh('npx', ['vitest', 'run', '--reporter=json', `--outputFile=${file}`], join(ROOT, 'apps/web-next'), { NODE_OPTIONS: '--max-old-space-size=4096' });
-    add('R3', 'R', 'pre', 'Full suite vs floor', 'no failures, no tests removed, no new skips',
-      existsSync(file) ? regressionGate(summarizeVitest(JSON.parse(readFileSync(file, 'utf8'))), baseline, Boolean(process.env.DATABASE_URL)) : { status: 'fail', evidence: 'not run: no result file' });
+    if (existsSync(file)) {
+      const full = summarizeVitest(JSON.parse(readFileSync(file, 'utf8')));
+      add('R3', 'R', 'pre', 'Full suite vs floor', 'no failures, no tests removed, no new skips',
+        acceptGate(regressionGate(full, baseline, Boolean(process.env.DATABASE_URL)), accepted.R3, full, changed, rerunAlone));
+    } else add('R3', 'R', 'pre', 'Full suite vs floor', 'no failures, no tests removed, no new skips', { status: 'fail', evidence: 'not run: no result file' });
   }
 
   // U — shared design/i18n/a11y guards plus the human consistency review.
@@ -91,7 +97,6 @@ if (PHASE === 'pre') {
     let rows: Array<{ name: string; bucket: string }> = []; try { rows = JSON.parse(r.out); } catch { /* gate fails below */ }
     add('L1', 'L', 'pre', 'CI checks', 'Quality Gates, CodeQL and Shell Tests (DB-backed full suite) are green on the PR', rows.length ? ciGate(rows) : { status: 'fail', evidence: tail(r.out) });
   } else add('L1', 'L', 'pre', 'CI checks', 'Quality Gates, CodeQL and Shell Tests (DB-backed full suite) are green on the PR', { status: 'pending', evidence: 'no --pr given' });
-  const changed = sh('git', ['diff', '--name-only', 'origin/main...HEAD']).out.split('\n').filter(Boolean);
   add('L2', 'L', 'pre', 'Docs updated', 'the PR updates the docs it declares', docsGate(changed, manifest.launch));
   add('L3', 'L', 'pre', 'Rollback stated', 'how this PR is undone is written down', { status: 'pass', evidence: manifest.launch.rollback });
   writeFileSync(join(RESULTS, `${manifest.id}.pre.json`), JSON.stringify(gates, null, 2));
