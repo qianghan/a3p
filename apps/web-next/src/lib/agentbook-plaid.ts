@@ -13,6 +13,7 @@ import { Configuration, PlaidApi, PlaidEnvironments, Products, CountryCode } fro
 import type { Transaction as PlaidTransaction } from 'plaid';
 import { prisma as db } from '@naap/database';
 import { encryptToken, decryptToken } from './agentbook-bank-token';
+import { applyBillMatch } from './agentbook-bank-match';
 import {
   matchTransaction,
   AUTO_MATCH_THRESHOLD,
@@ -373,6 +374,33 @@ export async function runMatcherOnTransaction(
         data: { matchedExpenseId: result.targetId, matchStatus: 'matched' },
       });
       return { matchStatus: 'matched', targetId: result.targetId, score: result.score };
+    }    // Review M2: a debit LARGER than what is owing (fee on top) is never
+    // auto-applied — it goes to review with the guess stored.
+    if (result.kind === 'bill' && (result.amountDeltaCents ?? 0) > 0) {
+      await db.abBankTransaction.updateMany({ where: { id: row.id, tenantId, matchStatus: { not: 'matched' } }, data: { matchedBillId: result.targetId, matchStatus: 'exception' } });
+      return { matchStatus: 'exception', targetId: result.targetId, score: result.score };
+    }
+    if (result.kind === 'bill') {
+      // PR 3d.4: a debit for an unpaid bill is a bill payment (lib/purchases),
+      // never an expense. A refused payment (closed period, already paid)
+      // leaves the row for review instead of failing the sync.
+      try {
+        await applyBillMatch({ tenantId, txnId: row.id, billId: result.targetId, source: 'bank_sync' });
+        return { matchStatus: 'matched', targetId: result.targetId, score: result.score };
+      } catch (err) {
+        // Review N2: lost the claim to a confirmed match (e.g. the user's tap):
+        // the row is someone else's now — leave it exactly as it is.
+        if ((err as { code?: string })?.code === 'txn_already_matched') {
+          return { matchStatus: 'matched', score: result.score };
+        }
+        console.warn('[plaid] bill auto-match refused; queued for review:', (err as Error)?.message);
+        // Only a row that is not already matched becomes a review guess.
+        await db.abBankTransaction.updateMany({
+          where: { id: row.id, tenantId, matchStatus: { not: 'matched' } },
+          data: { matchedBillId: result.targetId, matchStatus: 'exception' },
+        });
+        return { matchStatus: 'exception', targetId: result.targetId, score: result.score };
+      }
     }
   }
 
@@ -380,6 +408,7 @@ export async function runMatcherOnTransaction(
     const data: Record<string, string> = { matchStatus: 'exception' };
     if (result.kind === 'invoice') data.matchedInvoiceId = result.targetId;
     else if (result.kind === 'expense') data.matchedExpenseId = result.targetId;
+    else if (result.kind === 'bill') data.matchedBillId = result.targetId;
     await db.abBankTransaction.update({ where: { id: row.id }, data });
     return { matchStatus: 'exception', targetId: result.targetId, score: result.score };
   }

@@ -72,7 +72,11 @@
       "a_vendor": "某供应商",
       "low_stock_item": "{item} 库存不足",
       "low_stock_one": "{count} 种商品库存不足",
-      "low_stock_other": "{count} 种商品库存不足"
+      "low_stock_other": "{count} 种商品库存不足",
+      "bills_due_many_one": "{count} 张账单即将到期——仍欠 {amount}",
+      "bills_due_many_other": "{count} 张账单即将到期——仍欠 {amount}",
+      "bills_due_many_overdue_one": "{count} 张账单到期，最早一张已逾期——仍欠 {amount}",
+      "bills_due_many_overdue_other": "{count} 张账单到期，最早一张已逾期——仍欠 {amount}"
     },
     "action": {
       "logged": "已记录",
@@ -374,7 +378,13 @@
     "tax_code_ca_gst_pst": "GST + 省销售税（PST）",
     "tax_code_ca_gst_qst": "GST + 魁北克销售税（QST）",
     "tax_code_au_gst": "商品服务税（GST）",
-    "period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。"
+    "period_closed": "该支出的日期属于已关闭的期间，无法入账。请重新开放该期间或修改日期。",
+    "pay_later": "稍后付款",
+    "pay_later_hint": "保存为到期前支付的账单——它会显示在“账单”中，而不是已付支出。",
+    "field_due_date": "到期日",
+    "bill_saved": "账单已保存",
+    "bill_vendor_required": "请填写供应商以保存账单。",
+    "bill_due_invalid": "请选择不早于账单日期的到期日。"
   },
   "chat": {
     "title": "咨询您的顾问",

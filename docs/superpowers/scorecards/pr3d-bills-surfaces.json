@@ -1,0 +1,91 @@
+{
+  "id": "pr3d-bills-surfaces",
+  "title": "PR 3d — bills surfaces: web Bills page, mobile Capture \"Pay later\", chat record/pay/query, bank match to a bill",
+  "goals": [
+    {
+      "id": "G1-web-bills-page",
+      "covers": ["R-AP-7"],
+      "text": "Web Bills page: Open (open+partial, overdue included) / Overdue / Paid filters, aging buckets read from reports/ap-aging, still-owing per bill; add (one idempotency key in header + body), edit as PATCH amend for posted at_entry bills and PUT for legacy at_payment bills, pay in full (no amount), pay part (amountCents; over-owing refused before any request), void (409 bill_has_payments explained), payment void (DELETE /bills/:id/payments/:pid); en/fr-CA through the real catalog. Mutation-checked on file copies: edit method, Open filter, overpay guard, create key, payment-void URL each fail this file. UMD bundle rebuilt and committed to both cdn paths.",
+      "tests": [
+        "plugins/agentbook-expense/frontend/src/__tests__/bills-page.test.tsx",
+        "plugins/agentbook-expense/frontend/src/__tests__/bills-pay-error.test.tsx"
+      ]
+    },
+    {
+      "id": "G2-capture-pay-later",
+      "covers": ["R-AP-7"],
+      "text": "Mobile Capture \"Pay later\" (manual business entry; switch role + due date defaulting to bill date + 14): online → createBill in _lib/api.ts (POST /bills, key in Idempotency-Key header and body, never an expense); offline or a lost response → queueBill with the SAME key, replayed to /bills by the page and by sw.js; vendor and due ≥ bill date required; POST /bills replays the key for at_payment bills too (same key twice → one bill, 200) and resolves Capture's categoryId tenant-scoped (another tenant's account → 422). Home bills-due alert covers every open|partial bill in the window: one alert with the count and Σ still owing (partial counts its remainder), copy in en/fr-CA/zh-CN.",
+      "tests": [
+        "apps/web-next/src/__tests__/app/capture-pay-later.test.tsx",
+        "apps/web-next/src/__tests__/app/mobile/pay-later-client.test.ts",
+        "apps/web-next/src/__tests__/architecture/service-worker-replay.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-idempotency.test.ts",
+        "apps/web-next/src/__tests__/app/mobile/bills-due-alert.test.ts"
+      ]
+    },
+    {
+      "id": "G3-chat-skills",
+      "covers": ["R-AP-7"],
+      "text": "Chat skills record-bill, pay-bill, query-payables (before general-question) call the bills routes only (lib/purchases): record posts vendor/amount/due parsed from en/fr-CA/zh-CN text (14-day default stated in the reply); pay pays the named open bill in full or the stated part, refuses over-owing before any write, asks which when ambiguous, and with no open bill + an amount falls back to record-expense (pre-3d behaviour); query totals Σ outstanding of open+partial with aging from reports/ap-aging. manage-bills keeps its manifest (no triggers) and delegates. Routed through the REAL consultation triage and classifier in en/fr-CA/zh-CN, in code, DB (name asc) and prod-unseeded skill order, identically for web/telegram/mcp; definition questions stay with the advisor; record-expense, record-invoice-payment and aging-report no longer steal bill turns (mutation-checked).",
+      "tests": [
+        "plugins/agentbook-core/backend/src/__tests__/bill-chat-skills.test.ts",
+        "plugins/agentbook-core/backend/src/__tests__/bill-chat-routing.test.ts",
+        "plugins/agentbook-core/backend/src/__tests__/new-skill-chat-routing.test.ts",
+        "plugins/agentbook-core/backend/src/__tests__/skill-routing-precedence.test.ts"
+      ]
+    },
+    {
+      "id": "G4-bank-match",
+      "covers": ["R-AP-7"],
+      "text": "Bank match: the proposal path (matchTransactionWithCandidates) offers unpaid bills for a debit (scoreBillMatch on what is still owing, bill→due window, vendor; ties go to the bill); applyBillMatch records a bill payment through lib/purchases (DR 2000 / CR 1000 for at_entry), capped at what is owing, idempotent on bank:<txnId>, sets matchedBillId and never creates an expense; cross-tenant bills 404 with nothing posted; wired into bank-sync auto-match (review band stores the guess), POST bank-transactions/:id/match {targetType:'bill'} (one tap \"this is for bill X\"), the candidates route and Telegram; the daily-pulse auto-record skips any debit with a bill candidate. Each wiring mutation-checked.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/bank-bill-match.test.ts",
+        "apps/web-next/src/lib/__tests__/agentbook-payment-matcher-candidates.test.ts",
+        "apps/web-next/src/app/api/v1/agentbook/cron/daily-pulse/__tests__/route-bill-guard.test.ts"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/lib/__tests__/purchases.test.ts",
+      "apps/web-next/src/lib/__tests__/ledger-writer.test.ts",
+      "apps/web-next/src/app/api/v1/agentbook-expense/bills/__tests__/route-wiring.test.ts",
+      "apps/web-next/src/lib/agentbook-payment-matcher.test.ts",
+      "apps/web-next/src/lib/agentbook-plaid.test.ts",
+      "apps/web-next/src/__tests__/lib/offline-queue.test.ts",
+      "apps/web-next/src/__tests__/app/capture-page.test.tsx",
+      "apps/web-next/src/__tests__/api/v1/agentbook-core/mobile-home-route.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/skill-routing-canonical.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/consultation-triage.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/chinese-skill-routing.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/skill-replies-locale.test.ts"
+    ]
+  },
+  "ux": {
+    "vitest": [
+      "plugins/agentbook-expense/frontend/src/__tests__/bills-page.test.tsx",
+      "apps/web-next/src/__tests__/app/capture-pay-later.test.tsx",
+      "apps/web-next/src/__tests__/app/mobile/alert-copy.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-catalog.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-french-quality.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-plugin-context.test.ts",
+      "apps/web-next/src/__tests__/architecture/mobile-app-hygiene.test.ts",
+      "apps/web-next/src/__tests__/architecture/mobile-app-i18n.test.ts"
+    ],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr3d-bills-surfaces-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr3d-bills-surfaces-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": [
+      "agentbook/skills/workflows.md",
+      "agentbook/skills/architecture.md",
+      "agentbook/skills/product.md"
+    ],
+    "rollback": "Revert the PR. No schema change (AbBankTransaction.matchedBillId and the bill tables shipped in 3a). Bills, payments and journal entries created meanwhile through the new surfaces are ordinary lib/purchases rows and stay valid; bank transactions matched to bills keep matchedBillId (unread after a revert) and their bill payments remain — void a payment from the Bills page if it must be undone. Capture \"Pay later\" bills still queued offline at revert time replay to /bills, which still exists. The chat skills disappear from routing on revert; manage-bills' triggers come back with it.",
+    "prodPlaywright": [
+      "tests/e2e/mobile-app/bills-ui.spec.ts"
+    ],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  }
+}

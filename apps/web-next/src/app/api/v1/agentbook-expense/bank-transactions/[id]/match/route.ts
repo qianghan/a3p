@@ -22,18 +22,20 @@ import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import {
   applyInvoiceMatch,
   applyExpenseMatch,
+  applyBillMatch,
   BankMatchError,
 } from '@/lib/agentbook-bank-match';
 import { audit } from '@/lib/agentbook-audit';
 import { inferSource, inferActor } from '@/lib/agentbook-audit-context';
 import { publicErrorMessage } from '@/lib/api-error';
+import { PurchaseError } from '@/lib/purchases';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 interface MatchBody {
-  targetType?: 'invoice' | 'expense';
+  targetType?: 'invoice' | 'expense' | 'bill';
   targetId?: string;
 }
 
@@ -49,9 +51,9 @@ export async function POST(
     const body = (await request.json().catch(() => ({}))) as MatchBody;
     const { targetType, targetId } = body;
 
-    if (!targetType || (targetType !== 'invoice' && targetType !== 'expense')) {
+    if (!targetType || (targetType !== 'invoice' && targetType !== 'expense' && targetType !== 'bill')) {
       return NextResponse.json(
-        { success: false, error: 'targetType must be "invoice" or "expense"' },
+        { success: false, error: 'targetType must be "invoice", "expense" or "bill"' },
         { status: 400 },
       );
     }
@@ -95,6 +97,32 @@ export async function POST(
       });
     }
 
+    // PR 3d.4 — one tap "this is for bill X": records a bill payment
+    // (lib/purchases) and sets matchedBillId; no expense row is created.
+    if (targetType === 'bill') {
+      const result = await applyBillMatch({ tenantId, txnId: id, billId: targetId, source: 'reconciliation' });
+      await audit({
+        tenantId,
+        source: inferSource(request),
+        actor: await inferActor(request),
+        action: 'bank.match_bill',
+        entityType: 'AbBankTransaction',
+        entityId: id,
+        after: { matchedBillId: result.billId, paymentId: result.paymentId, paymentAmountCents: result.paymentAmountCents },
+      });
+      return NextResponse.json({
+        success: true,
+        data: {
+          transactionId: id,
+          matchedBillId: result.billId,
+          paymentId: result.paymentId,
+          amountCents: result.paymentAmountCents,
+          remainingCents: result.remainingCents,
+          fullyPaid: result.billPaid,
+        },
+      });
+    }
+
     // targetType === 'expense'
     const result = await applyExpenseMatch({
       tenantId,
@@ -127,13 +155,19 @@ export async function POST(
       const status =
         err.code === 'txn_not_found' ||
         err.code === 'invoice_not_found' ||
-        err.code === 'expense_not_found'
+        err.code === 'expense_not_found' ||
+        err.code === 'bill_not_found'
           ? 404
+          : err.code === 'txn_already_matched'
+          ? 409
           : 422;
       return NextResponse.json(
         { success: false, error: publicErrorMessage(err) },
         { status },
       );
+    }
+    if (err instanceof PurchaseError) {
+      return NextResponse.json({ success: false, code: err.code, error: publicErrorMessage(err) }, { status: err.status });
     }
     console.error('[bank-transactions/match] failed:', err);
     // Sanitized: don't echo Prisma internals or stack traces back to the

@@ -355,6 +355,13 @@ export interface PayInput {
   date?: Date;
   method?: string;
   idempotencyKey?: string | null;
+  /**
+   * PR 3d review N1: runs INSIDE the transaction that writes the payment (or,
+   * on a keyed replay, in its own transaction), so a caller's companion write —
+   * the bank match claiming its transaction — commits or rolls back with the
+   * payment. Throwing aborts the payment.
+   */
+  inTx?: (tx: PurchasesDb, payment: Row) => Promise<void>;
 }
 
 export async function payBill(db: PurchasesDb, tenantId: string, billId: string, input: PayInput = {}): Promise<{ bill: Row; payment: Row; replayed: boolean }> {
@@ -373,6 +380,7 @@ export async function payBill(db: PurchasesDb, tenantId: string, billId: string,
         const sameAmount = input.amountCents === undefined || input.amountCents === hit.amountCents;
         const sameDate = !input.date || input.date.getTime() === (hit.date as Date).getTime();
         if (!sameAmount || !sameDate) throw new PurchaseError(409, 'idempotency_key_conflict', 'This idempotency key was used for a different payment');
+        if (input.inTx) await db.$transaction(async (tx: PurchasesDb) => { await input.inTx!(tx, hit); });
         return { bill: await loadBill(db, tenantId, billId), payment: hit, replayed: true };
       }
     }
@@ -449,6 +457,7 @@ export async function payBill(db: PurchasesDb, tenantId: string, billId: string,
         const updated = atPayment
           ? await tx.abBill.update({ where: { id: billId }, data: { journalEntryId: entryId } })
           : await tx.abBill.findFirst({ where: { id: billId, tenantId } });
+        if (input.inTx) await input.inTx(tx, payment);
         return { bill: updated, payment, replayed: false };
       });
     } catch (err) {

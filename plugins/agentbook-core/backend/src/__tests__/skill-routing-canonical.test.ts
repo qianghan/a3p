@@ -115,11 +115,11 @@ describe('skill routing — canonical utterances', () => {
     // "owe" — so it needs its own case.
     { text: 'how much will I owe in taxes this quarter?', expected: 'tax-estimate' },
     // The other side of the exclusion: real accounts-payable questions must
-    // still reach manage-bills, so the tax carve-out can't quietly disable it.
-    { text: 'any bills due this week', expected: 'manage-bills' },
-    { text: 'what do I owe vendors', expected: 'manage-bills' },
-    { text: 'show me accounts payable', expected: 'manage-bills' },
-    { text: 'do I owe anything to vendors', expected: 'manage-bills' },
+    // still reach query-payables (manage-bills' phrasing since PR 3d), so the tax carve-out can't quietly disable it.
+    { text: 'any bills due this week', expected: 'query-payables' },
+    { text: 'what do I owe vendors', expected: 'query-payables' },
+    { text: 'show me accounts payable', expected: 'query-payables' },
+    { text: 'do I owe anything to vendors', expected: 'query-payables' },
 
     // query-finance — excludes "profit and loss" → pnl-report
     { text: 'show me profit and loss', expected: 'pnl-report' },

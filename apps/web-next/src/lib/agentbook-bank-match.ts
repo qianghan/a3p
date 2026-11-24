@@ -20,8 +20,9 @@
 import 'server-only';
 import { prisma as db } from '@naap/database';
 import { PublicError } from '@/lib/api-error';
+import { payBill } from '@/lib/purchases';
 
-export type MatchSource = 'reconciliation' | 'telegram_button' | 'telegram_picker';
+export type MatchSource = 'reconciliation' | 'telegram_button' | 'telegram_picker' | 'bank_sync';
 
 export interface ApplyInvoiceMatchInput {
   tenantId: string;
@@ -59,6 +60,11 @@ export class BankMatchError extends PublicError {
       | 'txn_not_found'
       | 'invoice_not_found'
       | 'expense_not_found'
+      | 'bill_not_found'
+      | 'txn_not_debit'
+      | 'txn_already_matched'
+      | 'txn_currency_mismatch'
+      | 'amount_mismatch'
       | 'coa_missing',
   ) {
     super(message);
@@ -242,4 +248,110 @@ export async function applyExpenseMatch(
   ]);
 
   return { ok: true, expenseId: expense.id };
+}
+
+export interface ApplyBillMatchInput {
+  tenantId: string;
+  txnId: string;
+  billId: string;
+  source: MatchSource;
+}
+
+export interface ApplyBillMatchResult {
+  billId: string;
+  paymentId: string;
+  paymentAmountCents: number;
+  remainingCents: number;
+  billPaid: boolean;
+  vendorName: string;
+  /** Debit minus what was paid (a fee on top of the bill); 0 when exact. */
+  excessCents: number;
+}
+
+/**
+ * PR 3d.4 — apply a bank debit to an unpaid bill: records a bill payment
+ * through lib/purchases (at_entry → DR 2000 / CR 1000; legacy at_payment →
+ * DR expense / CR 1000, exactly as paying it from the Bills page) and sets
+ * `matchedBillId`. Never creates an AbExpense — the bill already carries the
+ * expense, so an expense row here is the double count this exists to stop.
+ *
+ * Amount: the debit, capped at what is still owing (a debit within the
+ * matcher's fee tolerance above it settles the bill). Idempotent on
+ * `bank:<txnId>`: a retry after a crash between the payment and the txn
+ * update replays the same payment instead of paying twice.
+ */
+export async function applyBillMatch(input: ApplyBillMatchInput): Promise<ApplyBillMatchResult> {
+  const { tenantId, txnId, billId, source } = input;
+  const txn = await db.abBankTransaction.findFirst({
+    where: { id: txnId, tenantId },
+    include: { bankAccount: { select: { currency: true } } },
+  });
+  if (!txn) throw new BankMatchError('Transaction not found', 'txn_not_found');
+  if (txn.amount <= 0) throw new BankMatchError('Only a debit can pay a bill', 'txn_not_debit');
+  const bill = await db.abBill.findFirst({ where: { id: billId, tenantId, deletedAt: null } });
+  if (!bill) throw new BankMatchError('Bill not found', 'bill_not_found');
+
+  // Review I2: the debit and the bill must be in the same currency. A bill
+  // with no currency is in the tenant's; an account with none is unknown.
+  const cfg = bill.currency ? null : await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
+  const billCur = String(bill.currency ?? cfg?.currency ?? 'USD').toUpperCase();
+  const txnCur = (txn as { bankAccount?: { currency?: string | null } | null }).bankAccount?.currency?.toUpperCase();
+  if (txnCur && txnCur !== billCur) {
+    throw new BankMatchError(`This ${txnCur} debit cannot pay a ${billCur} bill`, 'txn_currency_mismatch');
+  }
+
+  const key = `bank:${txn.id}`;
+  // Review I1: a live payment keyed to this debit on ANY other bill means the
+  // debit is spent, whatever matchStatus says (e.g. a review-band re-point).
+  const elsewhere = await db.abBillPayment.findFirst({ where: { tenantId, idempotencyKey: key, voidedAt: null, billId: { not: bill.id } } });
+  if (elsewhere) throw new BankMatchError('This transaction already paid another bill', 'txn_already_matched');
+  const prior = await db.abBillPayment.findFirst({ where: { tenantId, billId: bill.id, idempotencyKey: key } });
+  const owing = bill.amountCents - (bill.paidCents ?? 0);
+  // Review M1: a legacy at_payment bill cannot be part-paid; a debit below
+  // what is owing is not this bill's payment (the matcher never proposes it).
+  if (!prior && txn.amount < owing && bill.postingMode !== 'at_entry') {
+    throw new BankMatchError('The debit is less than the bill and this bill cannot be part-paid', 'amount_mismatch');
+  }
+  const amountCents = prior ? prior.amountCents : Math.min(txn.amount, owing);
+
+  // Review I1 + N1: the claim (conditional updateMany on the txn) and the
+  // matched event run INSIDE the payment's transaction (payBill's inTx hook):
+  // the debit is claimed iff its payment exists. Of two racing claims the row
+  // lock lets one through; the loser's whole payment rolls back. A keyed
+  // replay re-asserts the claim in its own transaction. There is no release
+  // path: a failure anywhere rolls the claim back with the payment.
+  const excessCents = Math.max(0, txn.amount - amountCents);
+  const { bill: after, payment } = await payBill(db, tenantId, bill.id, {
+    amountCents,
+    date: prior ? (prior.date as Date) : txn.date,
+    method: 'bank',
+    idempotencyKey: key,
+    inTx: async (tx, pay) => {
+      const claim = await tx.abBankTransaction.updateMany({
+        where: { id: txn.id, tenantId, OR: [{ matchStatus: { not: 'matched' } }, { matchedBillId: bill.id }] },
+        data: { matchedBillId: bill.id, matchedExpenseId: null, matchStatus: 'matched' },
+      });
+      if (claim.count === 0) throw new BankMatchError('This transaction is already matched', 'txn_already_matched');
+      // Review M2: a debit above what was owing (bank fee) is not booked as a
+      // fee — there is no fee account the user chose; the excess is reported.
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'bank.txn_matched',
+          actor: source === 'bank_sync' ? 'system' : 'user',
+          action: { transactionId: txn.id, targetType: 'bill', billId: bill.id, paymentId: pay.id, amountCents: pay.amountCents, excessCents, source },
+        },
+      });
+    },
+  });
+
+  return {
+    billId: bill.id,
+    paymentId: payment.id,
+    paymentAmountCents: payment.amountCents,
+    remainingCents: Math.max(0, after.amountCents - (after.paidCents ?? 0)),
+    billPaid: after.status === 'paid',
+    vendorName: bill.vendorName,
+    excessCents,
+  };
 }

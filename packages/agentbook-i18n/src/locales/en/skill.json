@@ -154,5 +154,19 @@
   "cogs_period_quarter": "this quarter",
   "cogs_period_last_quarter": "last quarter",
   "cogs_period_year": "this year",
-  "cogs_load_failed": "I couldn’t load your cost of goods sold. Please try again."
+  "cogs_load_failed": "I couldn’t load your cost of goods sold. Please try again.",
+  "bill_need_details": "To record a bill I need the vendor and the amount — e.g. “add a bill from Hydro One $84 due Dec 15”.",
+  "bill_due_assumed": "No due date was given, so I set it to {date}.",
+  "bill_period_closed": "That date is in a closed period, so I can’t post it. Reopen the period or use a later date.",
+  "bills_load_failed": "I couldn’t load your bills. Please try again.",
+  "bill_pay_not_found_open": "I couldn’t find an open bill matching that. Open bills: {list}.",
+  "bill_pay_which": "Which bill did you pay?",
+  "bill_due_on": "due {date}",
+  "bill_overpay": "That’s more than the {remaining} still owing on **{vendor}**. Tell me the amount you paid, up to {remaining}.",
+  "bill_part_paid": "Recorded a {amount} payment to **{vendor}**; {remaining} is still owing.",
+  "bill_paid": "Paid **{vendor}** {amount} — the bill is now paid in full.",
+  "bills_overdue_suffix_one": "({count} overdue)",
+  "bills_overdue_suffix_other": "({count} overdue)",
+  "payables_aging": "Aging — current {current} · 1–30 days {d1_30} · 31–60 days {d31_60} · 60+ days {d60_plus}",
+  "bill_payment_voided": "That payment was voided, so it wasn’t recorded again. Say the payment again to record a new one."
 }

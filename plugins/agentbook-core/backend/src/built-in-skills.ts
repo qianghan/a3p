@@ -1,4 +1,5 @@
 import { BUSINESS_PHRASE_PATTERN, CREATE_INVOICE_TRIGGER_PATTERN, INVOICE_PAID_TRIGGER_PATTERNS, PERSONAL_ACCOUNT_CUE_PATTERN, PERSONAL_STATEMENT_PATTERN, PERSONAL_TREND_TRIGGER_PATTERNS, TAX_FAST_TRACK_ANCHOR_PATTERN, TAX_FAST_TRACK_TRIGGER_PATTERNS } from './skill-routing.js';
+import { PAY_BILL_PATTERN, PAYABLES_EXCLUDE, QUERY_PAYABLES_PATTERN, RECORD_BILL_PATTERN } from './bill-chat.js';
 
 /**
  * PR 4e — "change Jane to fortnightly", "set Jane's rate to $80k", "update
@@ -78,6 +79,40 @@ export const BUILT_IN_SKILLS = [
     endpoint: { method: 'POST', url: '/api/v1/agentbook-personal/transactions' },
   },
   {
+    name: 'record-bill',
+    description: 'Record a bill owed to a vendor (accounts payable) with its amount and due date — "add a bill from Hydro $84 due Dec 15", "pay later". Not for invoices to clients and not for expenses already paid.',
+    category: 'bookkeeping',
+    triggerPatterns: [RECORD_BILL_PATTERN],
+    excludePatterns: [...PAYABLES_EXCLUDE, PAY_BILL_PATTERN],
+    parameters: {
+      vendorName: { type: 'string', required: false, extractHint: 'the vendor the bill is from' },
+      amountCents: { type: 'number', required: false, extractHint: 'bill total times 100' },
+      dueDate: { type: 'date', required: false, extractHint: 'due date (YYYY-MM-DD)' },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'pay-bill',
+    description: 'Record paying an open vendor bill in full or in part — "pay the Hydro bill", "paid $100 of the Staples bill". Not for a client paying an invoice.',
+    category: 'bookkeeping',
+    triggerPatterns: [PAY_BILL_PATTERN],
+    excludePatterns: PAYABLES_EXCLUDE,
+    parameters: {
+      vendorName: { type: 'string', required: false, extractHint: 'vendor whose bill is being paid' },
+      amountCents: { type: 'number', required: false, extractHint: 'amount paid times 100 (omit for the full balance)' },
+    },
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
+    name: 'query-payables',
+    description: 'Answer accounts-payable questions — which bills are due or overdue, how much is owed to vendors, AP aging buckets.',
+    category: 'bookkeeping',
+    triggerPatterns: [QUERY_PAYABLES_PATTERN],
+    excludePatterns: [...PAYABLES_EXCLUDE, RECORD_BILL_PATTERN, PAY_BILL_PATTERN],
+    parameters: {},
+    endpoint: { method: 'INTERNAL', url: '' },
+  },
+  {
     name: 'record-expense', description: 'Record a business or personal expense', category: 'bookkeeping',
     triggerPatterns: [
       // Chinese. Same manifest mechanism English uses — see
@@ -106,6 +141,9 @@ export const BUILT_IN_SKILLS = [
     // language ("...for the business from my checking account") still wins
     // record-expense even though it mentions a personal account.
     excludePatterns: [
+      // PR 3d.3 — a vendor bill being recorded or paid is AP, not a new expense
+      // (pay-bill falls back to record-expense itself when no open bill matches).
+      RECORD_BILL_PATTERN, PAY_BILL_PATTERN,
       // PR 4e — "set Jane's rate to $80k" is an employee pay-rate edit, not a purchase.
       '\\b(set|change|raise|lower|update|make)\\b.{0,40}\\b(pay ?rate|rate|salary|wage)\\b','\\bto\\s+invoice\\b|\\binvoice\\s+to\\b|\\b(?:send|create|issue|write|prepare|make|draft)\\s+(?:an?\\s+)?invoice\\b',
       // Anchored at ^: anyMatch()'s test() retries the pattern at every
@@ -316,6 +354,8 @@ CREATE_INVOICE_TRIGGER_PATTERN],
       // Pronouns and judgements are not vendor names.
       '^(?:this|that|it|there|here|everything|nothing|which|what|who|why|how|when|where)\\b',
       '\\b(?:is|was)\\s+(?:fine|ok|okay|right|wrong|correct|good|bad|done|ready|personal|business)\\b',
+      // PR 3d review I3: "my rent is due friday" is a payable, not an alias.
+      '\\b(?:is|are)\\s+(?:due|overdue|paid|owed)\\b',
     ],
     parameters: { question: { type: 'string', required: true, extractHint: 'the full user message' } },
     endpoint: { method: 'POST', url: '/api/v1/agentbook-expense/advisor/ask' },
@@ -340,6 +380,8 @@ CREATE_INVOICE_TRIGGER_PATTERN],
       '(?:谁欠我|欠我钱|欠我多少)',
       '(?:未付|逾期|拖欠)(?:的)?(?:发票|账单|款项)',
 'aging', 'who.*owe', 'accounts.*receivable', 'ar report', 'overdue.*client', 'owe.*money'],
+    // PR 3d.3 — "who do I owe?", "AP aging", 逾期账单 are payables (query-payables).
+    excludePatterns: [QUERY_PAYABLES_PATTERN],
     parameters: {},
     endpoint: { method: 'GET', url: '/api/v1/agentbook-invoice/aging-report' },
   },
@@ -744,6 +786,8 @@ CREATE_INVOICE_TRIGGER_PATTERN],
       'invoice was paid',
     ],
     excludePatterns: [
+      // PR 3d.3 — "mark the Telus bill as paid" is a vendor bill (pay-bill).
+      PAY_BILL_PATTERN,
       // Personal-account/salary/paycheck cues without invoice/client context
       // defer to record-personal-transaction — see record-payment's comment
       // above for the full rationale (same collision, same fix, mirrored
@@ -810,7 +854,11 @@ CREATE_INVOICE_TRIGGER_PATTERN],
     // 'bills? due' required the words adjacent, so "what bills ARE due this
     // week?" — the phrasing this skill's own description promises — matched
     // nothing and fell through to the fallback.
-    triggerPatterns: ['bills?.*due', 'what.*owe', 'owe ', 'payable', 'rent.*due', 'bill from', 'add.*bill', 'record.*bill', 'overdue bill'],
+    // PR 3d.3: the manifest is kept (seeded rows, LLM classifier) but its
+    // trigger phrasing moved to record-bill / pay-bill / query-payables, and
+    // its handler delegates to them. With triggers here, manage-bills sorts
+    // first (name asc in prod) and would shadow all three.
+    triggerPatterns: [],
     // cu-maya-020 (canonical eval run 30578028815, 2026-07-30): "how much will I
     // owe in taxes this quarter?" routed here instead of tax-estimate. The bare
     // 'owe ' trigger matches "owe in taxes" and the exclusion list was only

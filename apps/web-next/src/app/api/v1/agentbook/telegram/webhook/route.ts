@@ -53,10 +53,12 @@ import {
 import {
   scoreInvoiceMatch,
   scoreExpenseMatch,
+  scoreBillMatch,
 } from '@/lib/agentbook-payment-matcher';
 import {
   applyInvoiceMatch,
   applyExpenseMatch,
+  applyBillMatch,
   BankMatchError,
 } from '@/lib/agentbook-bank-match';
 import {
@@ -5642,12 +5644,14 @@ function getBot(): Bot {
         }
         // Pull the best-guess target the matcher (PR 3) pre-stored on
         // this row. If nothing was guessed, ask the user to use the picker.
-        const targetType: 'invoice' | 'expense' | null = txn.matchedInvoiceId
+        const targetType: 'invoice' | 'expense' | 'bill' | null = txn.matchedInvoiceId
           ? 'invoice'
+          : txn.matchedBillId
+          ? 'bill'
           : txn.matchedExpenseId
           ? 'expense'
           : null;
-        const targetId = txn.matchedInvoiceId || txn.matchedExpenseId;
+        const targetId = txn.matchedInvoiceId || txn.matchedBillId || txn.matchedExpenseId;
         if (!targetType || !targetId) {
           // Toast is short and easy to miss — also send a reply so the
           // user has the explicit guidance in their chat history.
@@ -5679,6 +5683,19 @@ function getBot(): Bot {
             return;
           }
 
+          // PR 3d.4 — bill guess: record the bill payment, never an expense.
+          if (targetType === 'bill') {
+            const r = await applyBillMatch({ tenantId, txnId, billId: targetId, source: 'telegram_button' });
+            await ctx.answerCallbackQuery({ text: botT('bot.matched') });
+            const billReply = botT(r.billPaid ? 'bot.bill_paid_from_bank' : 'bot.bill_part_paid_from_bank', { p0: fmtAmount(r.paymentAmountCents), p1: escHtml(r.vendorName), p2: fmtAmount(r.remainingCents) });
+            try {
+              await ctx.editMessageText(billReply, { parse_mode: 'HTML' });
+            } catch {
+              await ctx.reply(billReply, { parse_mode: 'HTML' });
+            }
+            return;
+          }
+
           // expense
           await applyExpenseMatch({
             tenantId,
@@ -5704,6 +5721,10 @@ function getBot(): Bot {
             const toast =
               err.code === 'invoice_not_found' ? 'Invoice missing' :
               err.code === 'expense_not_found' ? 'Expense missing' :
+              err.code === 'bill_not_found' ? botT('bot.match_bill_missing') :
+              err.code === 'txn_already_matched' ? botT('bot.match_already_matched') :
+              err.code === 'txn_currency_mismatch' ? botT('bot.match_currency_differs') :
+              err.code === 'amount_mismatch' ? botT('bot.match_amount_differs') :
               err.code === 'coa_missing' ? 'Chart of accounts missing' :
               'Transaction not found';
             await ctx.answerCallbackQuery({ text: toast });
@@ -5793,7 +5814,7 @@ function getBot(): Bot {
         // naive `bnk_m2:<txnId>:<targetId>` would be 84 bytes, so we
         // store a {txnId, targetType, targetId} mapping in AbUserMemory
         // keyed by a short random token and use `bnk_m2:<token>` (≈18 B).
-        const candidates: { label: string; targetType: 'invoice' | 'expense'; targetId: string; score: number }[] = [];
+        const candidates: { label: string; targetType: 'invoice' | 'expense' | 'bill'; targetId: string; score: number }[] = [];
         if (action === 'bnk_pickinvoice') {
           const txnAbs = Math.abs(txn.amount);
           const invs = await db.abInvoice.findMany({
@@ -5843,6 +5864,20 @@ function getBot(): Bot {
             });
             const label = `${exp.vendor?.name || exp.description || 'expense'} ${fmtAmount(exp.amountCents)}`.slice(0, 40);
             candidates.push({ label, targetType: 'expense', targetId: exp.id, score });
+          }
+          // PR 3d.4 — one tap "this is for bill X": unpaid bills whose
+          // outstanding amount is in the picker window are offered too.
+          const bills = await db.abBill.findMany({
+            where: { tenantId, deletedAt: null, status: { in: ['open', 'partial'] }, amountCents: { gte: txn.amount - tol } },
+            orderBy: { dueDate: 'asc' },
+            take: 25,
+          });
+          for (const b of bills) {
+            const owing = b.amountCents - (b.paidCents ?? 0);
+            if (Math.abs(owing - txn.amount) > tol) continue;
+            const score = scoreBillMatch(matchableTxn, { id: b.id, outstandingCents: owing, billDate: b.billDate ?? null, dueDate: b.dueDate, status: b.status, vendorName: b.vendorName, currency: b.currency, postingMode: b.postingMode });
+            const label = `${botT('bot.bill_label')}: ${b.vendorName} ${fmtAmount(owing)}`.slice(0, 40);
+            candidates.push({ label, targetType: 'bill', targetId: b.id, score });
           }
         }
 
@@ -5910,7 +5945,7 @@ function getBot(): Bot {
           }
           return;
         }
-        let parsed: { txnId: string; targetType: 'invoice' | 'expense'; targetId: string };
+        let parsed: { txnId: string; targetType: 'invoice' | 'expense' | 'bill'; targetId: string };
         try {
           parsed = JSON.parse(memo.value);
         } catch {
@@ -5951,6 +5986,15 @@ function getBot(): Bot {
             });
             return;
           }
+          if (targetType === 'bill') {
+            const r = await applyBillMatch({ tenantId, txnId, billId: targetId, source: 'telegram_picker' });
+            await db.abUserMemory.deleteMany({
+              where: { tenantId, key: { startsWith: 'telegram:bnk_pick:' }, value: { contains: `"txnId":"${txnId}"` } },
+            });
+            await ctx.answerCallbackQuery({ text: botT('bot.linked') });
+            await ctx.reply(botT(r.billPaid ? 'bot.bill_paid_from_bank' : 'bot.bill_part_paid_from_bank', { p0: fmtAmount(r.paymentAmountCents), p1: escHtml(r.vendorName), p2: fmtAmount(r.remainingCents) }), { parse_mode: 'HTML' });
+            return;
+          }
           await applyExpenseMatch({
             tenantId,
             txnId,
@@ -5979,6 +6023,10 @@ function getBot(): Bot {
             const toast =
               err.code === 'invoice_not_found' ? 'Invoice missing' :
               err.code === 'expense_not_found' ? 'Expense missing' :
+              err.code === 'bill_not_found' ? botT('bot.match_bill_missing') :
+              err.code === 'txn_already_matched' ? botT('bot.match_already_matched') :
+              err.code === 'txn_currency_mismatch' ? botT('bot.match_currency_differs') :
+              err.code === 'amount_mismatch' ? botT('bot.match_amount_differs') :
               err.code === 'coa_missing' ? 'Chart of accounts missing' :
               'Transaction not found';
             await ctx.answerCallbackQuery({ text: toast });

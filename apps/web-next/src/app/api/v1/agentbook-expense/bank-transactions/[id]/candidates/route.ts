@@ -39,12 +39,14 @@ const DEFAULT_LIMIT = 3;
 const MAX_LIMIT = 10;
 
 interface CandidateOut {
-  kind: 'invoice' | 'expense';
+  kind: 'invoice' | 'expense' | 'bill';
   targetId: string;
   label: string;
   amountCents: number;
   date: string;
   score: number;
+  /** Bill candidates (review M2): debit − still owing, shown so a fee on top is visible before the tap. */
+  differenceCents?: number;
 }
 
 export async function GET(
@@ -62,6 +64,7 @@ export async function GET(
 
     const txn = await db.abBankTransaction.findFirst({
       where: { id, tenantId },
+      include: { bankAccount: { select: { currency: true } } },
     });
     if (!txn) {
       return NextResponse.json({ success: false, error: 'Transaction not found' }, { status: 404 });
@@ -73,6 +76,7 @@ export async function GET(
       date: txn.date,
       name: txn.name,
       merchantName: txn.merchantName,
+      currency: txn.bankAccount?.currency ?? null,
     }, limit);
 
     // Hydrate each candidate into a human-readable shape. Done with
@@ -100,6 +104,20 @@ export async function GET(
             amountCents: inv.amountCents,
             date: inv.issuedDate.toISOString(),
             score: c.score,
+          });
+        }
+      } else if (c.kind === 'bill') {
+        // PR 3d.4 — "this is for bill X": label = vendor (+ number), amount = still owing.
+        const bill = await db.abBill.findFirst({ where: { id: c.targetId, tenantId, deletedAt: null } });
+        if (bill) {
+          hydrated.push({
+            kind: 'bill',
+            targetId: bill.id,
+            label: `${bill.vendorName}${bill.billNumber ? ` #${bill.billNumber}` : ''}`,
+            amountCents: bill.amountCents - (bill.paidCents ?? 0),
+            date: bill.dueDate.toISOString(),
+            score: c.score,
+            differenceCents: c.amountDeltaCents ?? 0,
           });
         }
       } else if (c.kind === 'expense') {

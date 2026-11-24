@@ -154,5 +154,19 @@
   "cogs_period_quarter": "ce trimestre",
   "cogs_period_last_quarter": "le trimestre dernier",
   "cogs_period_year": "cette année",
-  "cogs_load_failed": "Je n’ai pas pu charger votre coût des marchandises vendues. Veuillez réessayer."
+  "cogs_load_failed": "Je n’ai pas pu charger votre coût des marchandises vendues. Veuillez réessayer.",
+  "bill_need_details": "Pour enregistrer une facture à payer, il me faut le fournisseur et le montant — par exemple « ajouter une facture fournisseur de Hydro-Québec 84 $ échéance 15 décembre ».",
+  "bill_due_assumed": "Aucune échéance indiquée, je l’ai fixée au {date}.",
+  "bill_period_closed": "Cette date tombe dans une période fermée, je ne peux pas la comptabiliser. Rouvrez la période ou choisissez une date ultérieure.",
+  "bills_load_failed": "Je n’ai pas pu charger vos factures à payer. Veuillez réessayer.",
+  "bill_pay_not_found_open": "Je n’ai trouvé aucune facture à payer correspondante. Factures ouvertes : {list}.",
+  "bill_pay_which": "Quelle facture avez-vous payée ?",
+  "bill_due_on": "échéance {date}",
+  "bill_overpay": "C’est plus que les {remaining} encore dus sur **{vendor}**. Indiquez le montant payé, jusqu’à {remaining}.",
+  "bill_part_paid": "Paiement de {amount} à **{vendor}** enregistré; il reste {remaining} à payer.",
+  "bill_paid": "**{vendor}** payé {amount} — la facture est entièrement réglée.",
+  "bills_overdue_suffix_one": "({count} en retard)",
+  "bills_overdue_suffix_other": "({count} en retard)",
+  "payables_aging": "Ancienneté — à échoir {current} · 1 à 30 jours {d1_30} · 31 à 60 jours {d31_60} · plus de 60 jours {d60_plus}",
+  "bill_payment_voided": "Ce paiement a été annulé, il n’a donc pas été enregistré de nouveau. Redites le paiement pour en enregistrer un nouveau."
 }

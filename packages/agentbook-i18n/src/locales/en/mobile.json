@@ -72,7 +72,11 @@
       "a_vendor": "A vendor",
       "low_stock_item": "{item} is low on stock",
       "low_stock_one": "{count} item is low on stock",
-      "low_stock_other": "{count} items are low on stock"
+      "low_stock_other": "{count} items are low on stock",
+      "bills_due_many_one": "{count} bill due — {amount} still owing",
+      "bills_due_many_other": "{count} bills due — {amount} still owing",
+      "bills_due_many_overdue_one": "{count} bill due, the first is overdue — {amount} still owing",
+      "bills_due_many_overdue_other": "{count} bills due, the first is overdue — {amount} still owing"
     },
     "action": {
       "logged": "Logged",
@@ -374,7 +378,13 @@
     "tax_code_ca_gst_pst": "GST + PST",
     "tax_code_ca_gst_qst": "GST + QST",
     "tax_code_au_gst": "GST",
-    "period_closed": "This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date."
+    "period_closed": "This expense is dated in a closed period, so it can’t be booked. Reopen the period or change the date.",
+    "pay_later": "Pay later",
+    "pay_later_hint": "Save it as a bill to pay by the due date — it shows under Bills, not as a paid expense.",
+    "field_due_date": "Due date",
+    "bill_saved": "Bill saved",
+    "bill_vendor_required": "Add the vendor to save a bill.",
+    "bill_due_invalid": "Choose a due date on or after the bill date."
   },
   "chat": {
     "title": "Ask your advisor",

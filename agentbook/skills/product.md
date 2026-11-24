@@ -66,7 +66,7 @@ Phase 11 analysis (100-feature comparison):
 - Time tracking with project profitability
 
 ### Bills, tax codes, inventory, payroll (2026-11 programme)
-- Bills / accounts payable: enter a bill (accrual: AP at entry; cash: expense at payment), pay in part or full, void; purchase tax codes (GST/HST/PST/QST, AU GST codes) with recoverable tax to 2100 for registrants.
+- Bills / accounts payable: enter a bill (accrual: AP at entry; cash: expense at payment), pay in part or full, void — from the web Bills page (aging buckets, payment void), mobile Capture "Pay later", chat ("add a bill from Hydro $84 due Dec 15", "pay the Hydro bill", "what bills are due?") or by matching a bank debit to the bill; purchase tax codes (GST/HST/PST/QST, AU GST codes) with recoverable tax to 2100 for registrants.
 - Inventory (opt-in "Track inventory"): items with stock on hand at weighted-average cost, purchases via bill lines, opening stock, adjustments and shrinkage write-offs (with a reason), low-stock alerts on Home and in chat.
 - Sales from stock: pick an inventory item on an invoice line; COGS posts at invoice creation (5990 US/CA, 5000 AU) and a void puts the stock back; COGS by quarter on the Items page and in chat ("what's my COGS this quarter?").
 - Payroll: employee profiles with encrypted tax ids, pay frequency (bi-weekly / fortnightly), pay-run drafts from chat.

@@ -154,5 +154,19 @@
   "cogs_period_quarter": "本季度",
   "cogs_period_last_quarter": "上季度",
   "cogs_period_year": "今年",
-  "cogs_load_failed": "无法加载您的销售成本，请重试。"
+  "cogs_load_failed": "无法加载您的销售成本，请重试。",
+  "bill_need_details": "记录账单需要供应商和金额——例如“添加一笔来自电力公司的账单 84 元，12月15日到期”。",
+  "bill_due_assumed": "未提供到期日，已设为 {date}。",
+  "bill_period_closed": "该日期属于已结账期间，无法入账。请重新打开期间或使用更晚的日期。",
+  "bills_load_failed": "无法加载您的账单，请重试。",
+  "bill_pay_not_found_open": "没有找到匹配的未付账单。未付账单：{list}。",
+  "bill_pay_which": "您支付的是哪一张账单？",
+  "bill_due_on": "{date} 到期",
+  "bill_overpay": "这超过了 **{vendor}** 仍欠的 {remaining}。请告诉我实际支付的金额（不超过 {remaining}）。",
+  "bill_part_paid": "已记录向 **{vendor}** 支付 {amount}；仍欠 {remaining}。",
+  "bill_paid": "已向 **{vendor}** 支付 {amount}——账单已全部付清。",
+  "bills_overdue_suffix_one": "（{count} 张逾期）",
+  "bills_overdue_suffix_other": "（{count} 张逾期）",
+  "payables_aging": "账龄——未到期 {current} · 1–30 天 {d1_30} · 31–60 天 {d31_60} · 60 天以上 {d60_plus}",
+  "bill_payment_voided": "该付款已作废，因此未再次记录。请重新说明付款以记录一笔新的付款。"
 }
