@@ -4912,6 +4912,7 @@ async function _executeClassificationCore(
         headers: brainHeaders(tenantId),
         t: t as (k: string, v?: Record<string, unknown>) => string,
         money: (c: number) => tenantMoneyCompact(c),
+        startedAt: startTime, // R2-1: the batch budget counts from the turn start
       });
       await db.abConversation.create({ data: { tenantId, question: text, answer: message, queryType: 'agent', channel, skillUsed: name } });
       return { selectedSkill, extractedParams, confidence, skillUsed: name, skillResponse: { data }, responseData: { message, actions: [], chartData: null, skillUsed: name, confidence, latencyMs: Date.now() - startTime } };

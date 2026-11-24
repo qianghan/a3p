@@ -17,6 +17,11 @@ export type RestatementMode = 'preview' | 'apply';
 
 /** Batches one chat apply follows (each is ≤100 rows on the server). */
 export const MAX_CHAT_APPLY_CALLS = 5;
+/** Stop starting new batches once this much of the turn has elapsed (R2-1). */
+export const CHAT_APPLY_BUDGET_MS = 35_000;
+/** The agent/message function limit, and the route's own per-call budget (lib/tax-restatement.ts). */
+export const CHAT_TURN_MAX_MS = 90_000;
+export const ROUTE_BATCH_MAX_MS = 40_000;
 
 export interface RestatementTenant {
   jurisdiction?: string | null;
@@ -47,8 +52,18 @@ export async function runRestatementSkill(opts: {
   t: (key: string, vars?: Record<string, unknown>) => string;
   money: (cents: number) => string;
   fetchImpl?: typeof fetch;
+  /** Clock and the turn's start (ms), for the batch budget. */
+  now?: () => number;
+  startedAt?: number;
 }): Promise<{ message: string; data: PreviewData | null }> {
   const f = opts.fetchImpl ?? fetch;
+  const now = opts.now ?? Date.now;
+  const startedAt = opts.startedAt ?? now();
+  // Start another batch only while it can still finish inside the turn.
+  const canStartBatch = () => {
+    const elapsed = now() - startedAt;
+    return elapsed < CHAT_APPLY_BUDGET_MS && elapsed + ROUTE_BATCH_MAX_MS <= CHAT_TURN_MAX_MS;
+  };
   const { year } = restatementChatYear(opts.text, opts.tenant);
   const url = `${opts.baseUrl}/api/v1/agentbook-tax/restatement`;
   type Body = { success?: boolean; data?: PreviewData; error?: { code?: string } } | null;
@@ -61,7 +76,7 @@ export async function runRestatementSkill(opts: {
     const acc = body.data;
     acc.restated = [...(acc.restated ?? [])];
     acc.failed = [...(acc.failed ?? [])];
-    for (let i = 1; i < MAX_CHAT_APPLY_CALLS && (acc.remaining ?? 0) > 0 && acc.cursor; i++) {
+    for (let i = 1; i < MAX_CHAT_APPLY_CALLS && (acc.remaining ?? 0) > 0 && acc.cursor && canStartBatch(); i++) {
       res = await f(url, { method: 'POST', headers: { ...opts.headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ year, cursor: acc.cursor }) });
       const next = (await res.json().catch(() => null)) as Body;
       if (!res.ok || !next?.success || !next.data) break; // report what is already committed

@@ -6,9 +6,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * (nothing is fetched until the user confirms), replies go through the
  * catalog in the reply locale.
  */
+const conversations = vi.hoisted(() => [] as unknown[]);
 vi.mock('../db/client.js', () => {
   const model = new Proxy({}, { get: (_t, m) => async () => (String(m) === 'findMany' ? [] : String(m) === 'count' ? 0 : null) });
-  return { db: new Proxy({}, { get: () => model }) };
+  const convo = { create: async (a: unknown) => { conversations.push(a); return {}; } };
+  return { db: new Proxy({}, { get: (_t, name) => (name === 'abConversation' ? convo : model) }) };
 });
 
 import { executeClassification, classifyAndExecuteV1 } from '../server';
@@ -137,5 +139,35 @@ describe('restatement-apply confirm prompt', () => {
       .toBe('Restate older purchases for tax year 2026 (2025-07-01 – 2026-06-30): move their recoverable GST/HST out of expenses (closed months are skipped)');
     expect(describeDestructiveAction(c, 'retraiter ma TPS pour 2025', replyT({ locale: 'fr-CA' }) as any))
       .toContain('l’année d’imposition 2025 (du 2024-07-01 au 2025-06-30)');
+  });
+});
+
+describe('R2-1: chat apply stops starting batches near the turn budget', () => {
+  it('a slow route makes it stop after the budget, reply with committed totals and remaining, and still record the turn', async () => {
+    const { runRestatementSkill } = await import('../restatement-chat');
+    let clock = 0;
+    const posts: unknown[] = [];
+    const slowFetch = vi.fn(async (_url: string, init?: RequestInit) => {
+      posts.push(JSON.parse(String(init?.body)));
+      clock += 20_000; // each batch takes 20 s
+      return { ok: true, status: 200, json: async () => ({ success: true, data: { ...PREVIEW, counts: { ...PREVIEW.counts, skippedClosed: 0 }, recoverableTaxCents: 1000, restated: [{}], failed: [], remaining: 50, cursor: `c${posts.length}` } }) };
+    }) as unknown as typeof fetch;
+    const t = (k: string, v?: Record<string, unknown>) => `${k}:${JSON.stringify(v ?? {})}`;
+    const r = await runRestatementSkill({
+      mode: 'apply', text: 'restate my GST for 2026', tenant: { jurisdiction: 'au' }, baseUrl: 'http://x', headers: {},
+      t, money: (c) => `$${c / 100}`, fetchImpl: slowFetch, now: () => clock, startedAt: 0,
+    });
+    // 0 s → batch 1 (ends 20 s) → batch 2 (ends 40 s) → 40 s > 35 s: stop.
+    expect(posts).toEqual([{ year: 2026 }, { year: 2026, cursor: 'c1' }]);
+    expect(r.message).toContain('skill.restatement_done:{"count":2');
+    expect(r.message).toContain('skill.restatement_remaining:{"count":50');
+  });
+
+  it('the handler still writes the conversation record when the loop stops early', async () => {
+    conversations.length = 0;
+    reply = { status: 200, body: { success: true, data: { ...PREVIEW, restated: [{}], failed: [], remaining: 3 } } };
+    await executeClassification(cls('restatement-apply', { jurisdiction: 'au' }), 'restate my GST for 2026', 't1', 'api');
+    expect((conversations[0] as any).data.skillUsed).toBe('restatement-apply');
+    expect((conversations[0] as any).data.answer).toContain('3 more are still to do');
   });
 });
