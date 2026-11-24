@@ -90,5 +90,12 @@
       "tests/e2e/mobile-app/inventory.spec.ts"
     ],
     "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  },
+  "acceptedGates": {
+    "R3": {
+      "reason": "Local full suite fails only on vitest timeouts in files this PR does not touch: the dev machine runs at load average 40-146 from other apps; CI Shell Tests (DB-backed full suite) is green on #654.",
+      "isolationEvidence": "plugin-icon 11/11, account-hard-delete 6/6, tenant-data-models 1/1, tax-fast-track guard 3/3, format-message 35/35 passed alone on 2026-11-21",
+      "approvedBy": "owner (chat, 2026-11-21)"
+    }
   }
 }
