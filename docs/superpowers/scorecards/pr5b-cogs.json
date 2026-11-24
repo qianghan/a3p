@@ -96,5 +96,12 @@
       "tests/e2e/mobile-app/inventory-sales.spec.ts"
     ],
     "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  },
+  "acceptedGates": {
+    "R3": {
+      "reason": "Local full suite fails only on vitest timeouts (STACK_TRACE_ERROR) in two files this PR does not touch; the dev machine was at load average 65 from other apps; CI Shell Tests (DB-backed full suite) is green on #658.",
+      "isolationEvidence": "plugin-icon 11/11 and agentbook-account-hard-delete 6/6 passed alone on 2026-11-23",
+      "approvedBy": "owner (chat, 2026-11-21 standing rule for load-timeout-only failures)"
+    }
   }
 }
