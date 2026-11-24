@@ -377,7 +377,7 @@ export async function runMatcherOnTransaction(
     }    // Review M2: a debit LARGER than what is owing (fee on top) is never
     // auto-applied — it goes to review with the guess stored.
     if (result.kind === 'bill' && (result.amountDeltaCents ?? 0) > 0) {
-      await db.abBankTransaction.update({ where: { id: row.id }, data: { matchedBillId: result.targetId, matchStatus: 'exception' } });
+      await db.abBankTransaction.updateMany({ where: { id: row.id, tenantId, matchStatus: { not: 'matched' } }, data: { matchedBillId: result.targetId, matchStatus: 'exception' } });
       return { matchStatus: 'exception', targetId: result.targetId, score: result.score };
     }
     if (result.kind === 'bill') {
@@ -388,8 +388,17 @@ export async function runMatcherOnTransaction(
         await applyBillMatch({ tenantId, txnId: row.id, billId: result.targetId, source: 'bank_sync' });
         return { matchStatus: 'matched', targetId: result.targetId, score: result.score };
       } catch (err) {
+        // Review N2: lost the claim to a confirmed match (e.g. the user's tap):
+        // the row is someone else's now — leave it exactly as it is.
+        if ((err as { code?: string })?.code === 'txn_already_matched') {
+          return { matchStatus: 'matched', score: result.score };
+        }
         console.warn('[plaid] bill auto-match refused; queued for review:', (err as Error)?.message);
-        await db.abBankTransaction.update({ where: { id: row.id }, data: { matchedBillId: result.targetId, matchStatus: 'exception' } });
+        // Only a row that is not already matched becomes a review guess.
+        await db.abBankTransaction.updateMany({
+          where: { id: row.id, tenantId, matchStatus: { not: 'matched' } },
+          data: { matchedBillId: result.targetId, matchStatus: 'exception' },
+        });
         return { matchStatus: 'exception', targetId: result.targetId, score: result.score };
       }
     }

@@ -314,45 +314,34 @@ export async function applyBillMatch(input: ApplyBillMatchInput): Promise<ApplyB
   }
   const amountCents = prior ? prior.amountCents : Math.min(txn.amount, owing);
 
-  // Review I1: claim the debit atomically BEFORE paying. The WHERE is
-  // re-evaluated under the row lock, so of two racing claims (bank sync → A,
-  // a tap → B) exactly one updates the row; the loser pays nothing.
-  // Re-claiming for the same bill is allowed (a retry replays its payment).
-  const before = { matchStatus: txn.matchStatus, matchedBillId: txn.matchedBillId, matchedExpenseId: txn.matchedExpenseId };
-  const claim = await db.abBankTransaction.updateMany({
-    where: { id: txn.id, tenantId, OR: [{ matchStatus: { not: 'matched' } }, { matchedBillId: bill.id }] },
-    data: { matchedBillId: bill.id, matchedExpenseId: null, matchStatus: 'matched' },
-  });
-  if (claim.count === 0) throw new BankMatchError('This transaction is already matched', 'txn_already_matched');
-
-  let after: Awaited<ReturnType<typeof payBill>>['bill'];
-  let payment: Awaited<ReturnType<typeof payBill>>['payment'];
-  try {
-    ({ bill: after, payment } = await payBill(db, tenantId, bill.id, {
-      amountCents,
-      date: prior ? (prior.date as Date) : txn.date,
-      method: 'bank',
-      idempotencyKey: key,
-    }));
-  } catch (err) {
-    // The payment was refused (closed period, already paid…): release the
-    // claim so the debit can be matched to something else.
-    if (!prior) {
-      await db.abBankTransaction.updateMany({ where: { id: txn.id, tenantId, matchedBillId: bill.id, matchStatus: 'matched' }, data: before });
-    }
-    throw err;
-  }
-
-  // Review M2: a debit above what was owing (bank fee) is not booked as a fee
-  // — there is no fee account the user chose; the excess is reported so the
-  // reconciliation can show it. Bank sync never auto-applies such a debit.
-  const excessCents = Math.max(0, txn.amount - payment.amountCents);
-  await db.abEvent.create({
-    data: {
-      tenantId,
-      eventType: 'bank.txn_matched',
-      actor: source === 'bank_sync' ? 'system' : 'user',
-      action: { transactionId: txn.id, targetType: 'bill', billId: bill.id, paymentId: payment.id, amountCents: payment.amountCents, excessCents, source },
+  // Review I1 + N1: the claim (conditional updateMany on the txn) and the
+  // matched event run INSIDE the payment's transaction (payBill's inTx hook):
+  // the debit is claimed iff its payment exists. Of two racing claims the row
+  // lock lets one through; the loser's whole payment rolls back. A keyed
+  // replay re-asserts the claim in its own transaction. There is no release
+  // path: a failure anywhere rolls the claim back with the payment.
+  const excessCents = Math.max(0, txn.amount - amountCents);
+  const { bill: after, payment } = await payBill(db, tenantId, bill.id, {
+    amountCents,
+    date: prior ? (prior.date as Date) : txn.date,
+    method: 'bank',
+    idempotencyKey: key,
+    inTx: async (tx, pay) => {
+      const claim = await tx.abBankTransaction.updateMany({
+        where: { id: txn.id, tenantId, OR: [{ matchStatus: { not: 'matched' } }, { matchedBillId: bill.id }] },
+        data: { matchedBillId: bill.id, matchedExpenseId: null, matchStatus: 'matched' },
+      });
+      if (claim.count === 0) throw new BankMatchError('This transaction is already matched', 'txn_already_matched');
+      // Review M2: a debit above what was owing (bank fee) is not booked as a
+      // fee — there is no fee account the user chose; the excess is reported.
+      await tx.abEvent.create({
+        data: {
+          tenantId,
+          eventType: 'bank.txn_matched',
+          actor: source === 'bank_sync' ? 'system' : 'user',
+          action: { transactionId: txn.id, targetType: 'bill', billId: bill.id, paymentId: pay.id, amountCents: pay.amountCents, excessCents, source },
+        },
+      });
     },
   });
 

@@ -64,8 +64,22 @@ function attachBankTables() {
       return { count: rows.length };
     },
   };
-  f.db.abEvent = { create: async ({ data }: any) => { events.push(data); return data; } };
+  f.db.abEvent = { create: async ({ data }: any) => { if (failEvents > 0) { failEvents--; throw new Error('event store down'); } events.push(data); return data; } };
+  // The bank tables take part in the fake's transactions: rolled back with the rest on a throw.
+  const inner = f.db.$transaction;
+  f.db.$transaction = async (fn: any, opts?: unknown) => {
+    // Snapshot once the fake's serialising lock is held (inside fn), so a
+    // rollback never clobbers a transaction that committed while we waited.
+    let saved: { txns: any[]; events: number } | null = null;
+    try {
+      return await inner(async (tx: any) => { saved = { txns: txns.map((r) => ({ ...r })), events: events.length }; return fn(tx); }, opts);
+    } catch (err) {
+      if (saved) { txns.splice(0, txns.length, ...(saved as any).txns); events.length = (saved as any).events; }
+      throw err;
+    }
+  };
 }
+let failEvents = 0;
 const txn = (o: Partial<any> = {}) => {
   const row = { id: `tx-${txns.length + 1}`, tenantId: 't1', amount: 11000, date: new Date('2026-11-20T12:00:00Z'), name: 'OFFICEWORKS 123', merchantName: 'Officeworks', matchStatus: 'pending', matchedBillId: null, matchedExpenseId: null, matchedInvoiceId: null, bankAccount: { currency: 'AUD' }, ...o };
   txns.push(row);
@@ -90,6 +104,7 @@ beforeEach(() => {
   f = createFakeLedgerDb();
   f.state.tenantConfigs.push({ ...AU });
   attachBankTables();
+  failEvents = 0;
   matcherResult.mockReset();
 });
 
@@ -247,5 +262,79 @@ describe('fix round 1 — review I1/I2/M1/M2', () => {
     const m = await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' });
     expect([m.paymentAmountCents, m.excessCents]).toEqual([11000, 40]);
     expect(events.at(-1).action.excessCents).toBe(40);
+  });
+});
+
+describe('fix round 2 — review N1/N2: the claim commits with the payment', () => {
+  it('N1 claimed-without-payment cannot happen: a failure in the payment transaction leaves the debit unclaimed and unpaid', async () => {
+    const a = await bill();
+    const tx = txn();
+    f.state.injectTxErrors.push('XFAIL');
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' })).rejects.toBeTruthy();
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length, netBySource('bill_payment')]).toEqual(['pending', null, 0, {}]);
+  });
+  it('N1 claim lost inside the transaction (row matched elsewhere in between) rolls the payment back', async () => {
+    const a = await bill();
+    const tx = txn({ matchStatus: 'matched', matchedBillId: 'some-other-bill' });
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' })).rejects.toMatchObject({ code: 'txn_already_matched' });
+    expect([f.state.billPayments.length, ap(), txns[0].matchedBillId]).toEqual([0, 11000, 'some-other-bill']);
+  });
+  it('N1 paid-without-claim cannot happen: a second same-bill apply that fails after the first paid leaves the claim in place', async () => {
+    const a = await bill();
+    const tx = txn();
+    const [r1, r2] = await Promise.allSettled([
+      applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' }),
+      (async () => { await Promise.resolve(); f.state.injectTxErrors.push('XFAIL2'); return applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'telegram_picker' }); })(),
+    ]);
+    expect(f.state.billPayments).toHaveLength(1);
+    expect([r1.status, r2.status]).toContain('fulfilled');
+    expect([txns[0].matchStatus, txns[0].matchedBillId]).toEqual(['matched', a.id]);
+    // and a later failing replay does not release it either
+    f.state.injectTxErrors.push('XFAIL3');
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' }).catch(() => null);
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['matched', a.id, 1]);
+  });
+  it('N2 the event write is in the same transaction: if it fails nothing is paid and the debit stays unclaimed', async () => {
+    const a = await bill();
+    const tx = txn();
+    failEvents = 1;
+    await expect(applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' })).rejects.toBeTruthy();
+    expect([f.state.billPayments.length, txns[0].matchStatus]).toEqual([0, 'pending']);
+  });
+  it('N2 user tap wins: the bank-sync apply for another bill loses and leaves the confirmed match untouched', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'telegram_button' });
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 0 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect(r.matchStatus).toBe('matched');
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['matched', b.id, 1]);
+  });
+  it('N2 a refused auto-apply marks exception only where the row is not already matched', async () => {
+    const a = await bill();
+    const tx = txn();
+    failEvents = 1;
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 0 });
+    const r = await runMatcherOnTransaction('t1', tx);
+    expect([r.matchStatus, txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['exception', 'exception', a.id, 0]);
+  });
+  it('N1 a keyed replay re-asserts the claim (a payment on file with an unclaimed row ends matched, one payment)', async () => {
+    const a = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'bank_sync' });
+    Object.assign(txns[0], { matchStatus: 'pending', matchedBillId: null }); // a pre-fix orphan
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: a.id, source: 'reconciliation' });
+    expect([txns[0].matchStatus, txns[0].matchedBillId, f.state.billPayments.length]).toEqual(['matched', a.id, 1]);
+  });
+  it('N2 any other refusal on a row already matched elsewhere leaves it untouched', async () => {
+    const a = await bill();
+    const b = await bill();
+    const tx = txn();
+    await applyBillMatch({ tenantId: 't1', txnId: tx.id, billId: b.id, source: 'telegram_button' });
+    f.state.bills.find((x) => x.id === a.id)!.currency = 'USD'; // A now refuses with txn_currency_mismatch
+    matcherResult.mockResolvedValue({ kind: 'bill', targetId: a.id, score: 0.95, amountDeltaCents: 0 });
+    await runMatcherOnTransaction('t1', tx);
+    expect([txns[0].matchStatus, txns[0].matchedBillId]).toEqual(['matched', b.id]);
   });
 });
