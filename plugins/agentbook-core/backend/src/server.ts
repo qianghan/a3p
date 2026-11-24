@@ -4900,9 +4900,14 @@ async function _executeClassificationCore(
   if (selectedSkill.name === 'restatement-preview' || selectedSkill.name === 'restatement-apply') {
     const name = selectedSkill.name;
     try {
+      // The tax year is resolved from the tenant's jurisdiction + zone (shared helper).
+      const tc = classification.tenantConfig?.jurisdiction
+        ? classification.tenantConfig
+        : await db.abTenantConfig.findUnique({ where: { userId: tenantId } }).catch(() => null);
       const { message, data } = await runRestatementSkill({
         mode: name === 'restatement-apply' ? 'apply' : 'preview',
         text,
+        tenant: { jurisdiction: tc?.jurisdiction ?? null, timezone: tc?.timezone ?? null },
         baseUrl: resolveTaxBaseUrl(),
         headers: brainHeaders(tenantId),
         t: t as (k: string, v?: Record<string, unknown>) => string,

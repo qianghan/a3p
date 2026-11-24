@@ -37,5 +37,5 @@
   "pay_run_drafts_processed": "Cette période de paie a déjà été traitée — ouvrez la page {page} pour la consulter.",
   "pay_run_drafts_failed": "Je n'ai pas pu préparer les paies brouillons. Réessayez sur la page {page}.",
   "sensitive_id_looks_invalid": "Remarque : ce numéro ne semble pas être un TFN, NAS ou SSN valide — et, pour des raisons de confidentialité, les numéros fiscaux se saisissent uniquement dans la fiche de l'employé, jamais dans le clavardage.",
-  "restatement_confirm": "Retraiter les achats antérieurs de l’année d’imposition {year} : sortir leur TPS/TVH récupérable des dépenses (les mois clôturés sont exclus)"
+  "restatement_confirm": "Retraiter les achats antérieurs de l’année d’imposition {year} (du {from} au {to}) : sortir leur TPS/TVH récupérable des dépenses (les mois clôturés sont exclus)"
 }

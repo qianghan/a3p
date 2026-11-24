@@ -160,5 +160,7 @@
   "restatement_preview": "Année d’imposition {year} ({from} – {to}) : **{count}** achats antérieurs incluent **{amount}** de TPS/TVH récupérable dans la dépense. Le retraitement réduirait les dépenses et augmenterait le bénéfice net de {amount}. Dites « retraiter ma TPS pour {year} » pour l’appliquer.",
   "restatement_skipped_closed": "{count} dans des mois clôturés resteront tels quels.",
   "restatement_done": "C’est fait : **{count}** achats retraités pour l’année d’imposition {year}; **{amount}** transférés des dépenses à votre compte de TPS/TVH.",
-  "restatement_load_failed": "Je n’ai pas pu effectuer le retraitement. Veuillez réessayer."
+  "restatement_load_failed": "Je n’ai pas pu effectuer le retraitement. Veuillez réessayer.",
+  "restatement_remaining": "Il en reste {count} — redites « retraiter ma TPS pour {year} » pour continuer.",
+  "restatement_failed": "{count} n’ont pas pu être retraités et sont restés inchangés; réessayez."
 }

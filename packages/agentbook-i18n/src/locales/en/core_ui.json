@@ -421,6 +421,7 @@
   "restate_skipped_closed": "In closed months, left as they are: {count}.",
   "restate_skipped_other": "Need a manual check (tax doesn’t match the tax code, or split): {count}.",
   "restate_already_typed": "Already have a tax code: {count}.",
-  "restate_confirm": "Restate these purchases ({count})? {amount} moves from expenses to your GST/HST account, each as a correcting entry on its original date.",
-  "restate_done": "Purchases restated: {count}. {amount} moved to your GST/HST account."
+  "restate_confirm": "Restate these purchases ({count}) for {from} – {to}? {amount} moves from expenses to your GST/HST account, each as a correcting entry on its original date.",
+  "restate_done": "Purchases restated: {count}. {amount} moved to your GST/HST account.",
+  "restate_failed_rows": "Could not restate: {count}. They were left unchanged; try again."
 }

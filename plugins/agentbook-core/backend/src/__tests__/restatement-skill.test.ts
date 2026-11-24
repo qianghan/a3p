@@ -14,7 +14,7 @@ vi.mock('../db/client.js', () => {
 import { executeClassification, classifyAndExecuteV1 } from '../server';
 import { BUILT_IN_SKILLS } from '../built-in-skills';
 import { reconcileSkills } from '../skill-source.js';
-import { restatementYearFromText, restatementDisplayYear } from '../restatement-chat';
+import { restatementChatYear } from '../restatement-chat';
 
 const PREVIEW = {
   year: 2026, from: '2025-07-01', to: '2026-06-30', applicable: true,
@@ -50,11 +50,23 @@ describe('restatement chat skills', () => {
     expect((BUILT_IN_SKILLS.find((s: any) => s.name === 'restatement-preview') as any).confirmBefore).toBeFalsy();
   });
 
-  it('year: explicit 20xx, else the current tax year (AU by its ending year)', () => {
-    expect(restatementYearFromText('restate my GST for 2025')).toBe(2025);
-    expect(restatementYearFromText('restate my GST')).toBeNull();
-    expect(restatementDisplayYear('restate', 'au', new Date('2026-08-01T00:00:00Z'))).toBe(2027);
-    expect(restatementDisplayYear('restate', 'ca', new Date('2026-08-01T00:00:00Z'))).toBe(2026);
+  it('year: the shared helper — AU card label "2025–2026" / "FY2025-26" is 2026; else today in the tenant zone', () => {
+    expect(restatementChatYear('restate my 2025-2026 purchases', { jurisdiction: 'au' })).toEqual({ year: 2026, from: '2025-07-01', to: '2026-06-30' });
+    expect(restatementChatYear('restate FY2025-26', { jurisdiction: 'au' }).year).toBe(2026);
+    expect(restatementChatYear('restate my GST for 2025', { jurisdiction: 'ca' })).toEqual({ year: 2025, from: '2025-01-01', to: '2025-12-31' });
+    expect(restatementChatYear('restate', { jurisdiction: 'au', timezone: 'Australia/Sydney' }, new Date('2026-06-30T15:00:00Z')).year).toBe(2027);
+  });
+
+  it('I-1: AU apply quoting the card label POSTs the year the card meant', async () => {
+    reply = { status: 200, body: { success: true, data: { ...PREVIEW, restated: [{}], failed: [], remaining: 0 } } };
+    await executeClassification(cls('restatement-apply', { jurisdiction: 'au' }), 'restate my 2025–2026 purchases', 't1', 'api');
+    expect(JSON.parse(calls[0].body!)).toEqual({ year: 2026 });
+  });
+
+  it('I-2: a partial apply says what was restated, what failed and what remains', async () => {
+    reply = { status: 200, body: { success: true, data: { ...PREVIEW, counts: { ...PREVIEW.counts, skippedClosed: 0 }, recoverableTaxCents: 1000, restated: [{}], failed: [{}], remaining: 40 } } };
+    const r = await executeClassification(cls('restatement-apply', { jurisdiction: 'au' }), 'restate my GST for 2026', 't1', 'api');
+    expect(r.responseData.message).toBe('Done: restated **1** purchases for tax year 2026; **$10** moved from expenses to your GST/HST account. 1 could not be restated and were left unchanged; try again. 40 more are still to do — say “restate my GST for 2026” again to continue.');
   });
 
   it('preview: GETs the year and states count, amount, period and closed months', async () => {
@@ -106,9 +118,9 @@ describe('restatement-apply confirm prompt', () => {
     const { describeDestructiveAction } = await import('../agent-brain');
     const { replyT } = await import('../reply-locale.js');
     const c = { selectedSkill: { name: 'restatement-apply' }, extractedParams: {}, tenantConfig: { jurisdiction: 'au' } };
-    expect(describeDestructiveAction(c, 'restate my GST for 2026', replyT({ locale: 'en' }) as any))
-      .toBe('Restate older purchases for tax year 2026: move their recoverable GST/HST out of expenses (closed months are skipped)');
+    expect(describeDestructiveAction(c, 'restate my 2025-2026 purchases', replyT({ locale: 'en' }) as any))
+      .toBe('Restate older purchases for tax year 2026 (2025-07-01 – 2026-06-30): move their recoverable GST/HST out of expenses (closed months are skipped)');
     expect(describeDestructiveAction(c, 'retraiter ma TPS pour 2025', replyT({ locale: 'fr-CA' }) as any))
-      .toContain('l’année d’imposition 2025');
+      .toContain('l’année d’imposition 2025 (du 2024-07-01 au 2025-06-30)');
   });
 });

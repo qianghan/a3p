@@ -160,5 +160,7 @@
   "restatement_preview": "{year} 纳税年度（{from} – {to}）：**{count}** 笔以往采购的费用中含 **{amount}** 可抵扣 GST/HST。重述将使费用减少、净利润增加 {amount}。说“重述 {year} 年的 GST”即可应用。",
   "restatement_skipped_closed": "{count} 笔位于已结账月份，将保持不变。",
   "restatement_done": "完成：已重述 {year} 纳税年度的 **{count}** 笔采购，**{amount}** 已从费用转入 GST/HST 账户。",
-  "restatement_load_failed": "无法执行重述，请重试。"
+  "restatement_load_failed": "无法执行重述，请重试。",
+  "restatement_remaining": "还有 {count} 笔待处理——再说一次“重述 {year} 年的 GST”即可继续。",
+  "restatement_failed": "{count} 笔未能重述，已保持不变，请重试。"
 }

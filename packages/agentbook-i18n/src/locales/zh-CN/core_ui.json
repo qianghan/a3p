@@ -421,6 +421,7 @@
   "restate_skipped_closed": "位于已结账月份、保持不变：{count} 笔。",
   "restate_skipped_other": "需要人工核对（税额与税码不符，或已拆分）：{count} 笔。",
   "restate_already_typed": "已有税码：{count} 笔。",
-  "restate_confirm": "确认重述这些采购（{count} 笔）？{amount} 将从费用转入 GST/HST 账户，每笔均按原日期记一笔更正分录。",
-  "restate_done": "已重述采购：{count} 笔。{amount} 已转入 GST/HST 账户。"
+  "restate_confirm": "确认重述 {from} 至 {to} 的这些采购（{count} 笔）？{amount} 将从费用转入 GST/HST 账户，每笔均按原日期记一笔更正分录。",
+  "restate_done": "已重述采购：{count} 笔。{amount} 已转入 GST/HST 账户。",
+  "restate_failed_rows": "未能重述：{count} 笔，已保持不变，请重试。"
 }

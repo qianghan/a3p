@@ -421,6 +421,7 @@
   "restate_skipped_closed": "Dans des mois clôturés, laissés tels quels : {count}.",
   "restate_skipped_other": "À vérifier manuellement (taxe non conforme au code de taxe, ou ventilation) : {count}.",
   "restate_already_typed": "Ont déjà un code de taxe : {count}.",
-  "restate_confirm": "Retraiter ces achats ({count})? {amount} passe des dépenses à votre compte de TPS/TVH, chacun par une écriture de correction à sa date d’origine.",
-  "restate_done": "Achats retraités : {count}. {amount} transféré dans votre compte de TPS/TVH."
+  "restate_confirm": "Retraiter ces achats ({count}) du {from} au {to}? {amount} passe des dépenses à votre compte de TPS/TVH, chacun par une écriture de correction à sa date d’origine.",
+  "restate_done": "Achats retraités : {count}. {amount} transféré dans votre compte de TPS/TVH.",
+  "restate_failed_rows": "Non retraités : {count}. Ils sont restés inchangés; réessayez."
 }

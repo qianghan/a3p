@@ -33,6 +33,8 @@ const NEW_SKILLS: Array<[string, string]> = [
   ['How much GST would the restatement move?', 'restatement-preview'],
   ['Restate my GST for 2026', 'restatement-apply'],
   ['Apply the restatement for 2026', 'restatement-apply'],
+  ['Restate my 2025–2026 purchases', 'restatement-apply'],
+  ['Preview the restatement for FY2025-26', 'restatement-preview'],
   ['Aperçu du retraitement de la TPS pour 2026', 'restatement-preview'],
   ['Que changerait le retraitement de 2026 ?', 'restatement-preview'],
   ['Retraiter ma TPS pour 2026', 'restatement-apply'],

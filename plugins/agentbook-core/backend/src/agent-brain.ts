@@ -7,7 +7,7 @@
  * Exports a single function: handleAgentMessage(req, ctx)
  */
 
-import { restatementDisplayYear } from './restatement-chat.js';
+import { restatementChatYear } from './restatement-chat.js';
 import { hasAddOn } from '@naap/billing';
 import { db } from './db/client.js';
 import { buildPastFilingContext } from './past-filing-context.js';
@@ -821,8 +821,9 @@ export function describeDestructiveAction(classification: any, fallbackText: str
     }
     case 'restatement-apply': {
       // PR 2c — name the tax year the user is confirming.
-      const year = restatementDisplayYear(fallbackText, classification?.tenantConfig?.jurisdiction);
-      return t ? t('agent.restatement_confirm', { year }) : `Restate older purchases for tax year ${year}`;
+      // PR 2c review I-1: the user confirms the year AND its dates, resolved by the same helper the skill sends.
+      const { year, from, to } = restatementChatYear(fallbackText, classification?.tenantConfig);
+      return t ? t('agent.restatement_confirm', { year, from, to }) : `Restate older purchases for tax year ${year} (${from} – ${to})`;
     }
     case 'send-invoice':
       return params.invoiceId

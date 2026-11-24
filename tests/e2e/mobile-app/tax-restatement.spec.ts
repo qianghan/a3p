@@ -14,6 +14,7 @@ import {
 import { api, expectOk } from '../nightly/helpers/api';
 // Expected figures come from the engine the server runs, from source.
 import { computeLineTax, defaultTaxCode } from '../../../packages/agentbook-jurisdictions/src/tax-codes';
+import { taxYearOfDate } from '../../../packages/agentbook-jurisdictions/src/restatement-year';
 
 /**
  * PR 2c — opt-in tax restatement, proved on a DEPLOYED site for maya (CA) and sydney (AU).
@@ -61,7 +62,7 @@ async function returnItc(page: Page, j: 'au' | 'ca', iso: string): Promise<numbe
   const r = res.data.data;
   return j === 'au' ? r.label1BGstOnPurchasesCents : r.line108ItcCents + (r.qstItrCents ?? 0);
 }
-const taxYear = (j: string, iso: string) => (j === 'au' && Number(iso.slice(5, 7)) >= 7 ? Number(iso.slice(0, 4)) + 1 : Number(iso.slice(0, 4)));
+const taxYear = (j: string, iso: string) => taxYearOfDate(j, iso);
 
 for (const persona of ['maya', 'sydney'] as Persona[]) {
   test.describe(`tax restatement — ${persona}`, () => {
@@ -149,6 +150,7 @@ for (const persona of ['maya', 'sydney'] as Persona[]) {
       const applied = await api(page).post(`${TAX}/restatement`, { year, expenseIds: [id] });
       expectOk(applied, 'apply');
       expect((applied.data.data.restated as Array<{ expenseId: string }>).map((r) => r.expenseId)).toEqual([id]);
+      expect([applied.data.data.failed, applied.data.data.remaining]).toEqual([[], 0]);
       const tb2 = await trialBalance(page);
       const pnl2 = await pnlSnapshot(page);
       expect((pnl2.expenseByAccount[cat.id] ?? 0) - (pnl1.expenseByAccount[cat.id] ?? 0), 'P&L category falls by the recoverable tax').toBe(0 - rec);
