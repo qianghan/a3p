@@ -1,8 +1,8 @@
 {
   "_comment": "Hand-maintained. Kept apart from perf-baseline-mobile.json because that file is regenerated with `--record-mobile-baseline ... > file`, which would erase anything written into it. Every entry needs allowanceKb and a reason; each is ratcheted at the measured First Load JS + ~5 kB so further growth fails CI.",
   "/app": {
-    "allowanceKb": 60,
-    "reason": "Measured 160 kB on 2026-10-22 (baseline 105 kB, +55). Home gained the KPI strip, alert carousel, pull-to-refresh, KPI sheets and the offline snapshot across PRs 3-6. The user-facing gate passes on production (Home KPIs visible within 2.5 s on Slow 4G + 4x CPU, perf.spec.ts), so the overage is accepted for now. Ratcheted at measured + 5 kB. What dominates the extra bytes has not been analysed."
+    "allowanceKb": 64,
+    "reason": "Measured 160 kB on 2026-10-22 (baseline 105 kB, +55). Home gained the KPI strip, alert carousel, pull-to-refresh, KPI sheets and the offline snapshot across PRs 3-6. The user-facing gate passes on production (Home KPIs visible within 2.5 s on Slow 4G + 4x CPU, perf.spec.ts), so the overage is accepted for now. Ratcheted at measured + 5 kB. What dominates the extra bytes has not been analysed. Raised +4 kB on 2026-11-23 (PR 2c, measured 166 kB): the i18n catalog ships on every route, so the AP/inventory/payroll programme's catalog keys (bill chat, restatement) grew Home with no Home code change; same cause as /app/chat and /app/docs — revisit the catalog-size axes before raising again."
   },
   "/app/chat": {
     "allowanceKb": 56,
