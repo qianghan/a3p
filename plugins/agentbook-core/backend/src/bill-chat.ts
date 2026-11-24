@@ -60,7 +60,7 @@ function nextWeekday(now: Date, dow: number): Date {
  * weekday names (next occurrence), "tomorrow"/"demain"/"明天".
  */
 export function parseDueDate(text: string, now: Date = new Date()): Date | null {
-  const s = text.toLowerCase();
+  const s = text.slice(0, MAX_PARSE).toLowerCase();
   let m = s.match(/\b(20\d\d)-(\d{1,2})-(\d{1,2})\b/);
   if (m) return utcDay(+m[1], +m[2] - 1, +m[3]);
   m = s.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/);
@@ -84,25 +84,34 @@ export function parseDueDate(text: string, now: Date = new Date()): Date | null 
   return null;
 }
 
-const STOP = /\s+(?:for|of|due|on|at|by|pour|de|due|d[ue]|à|le|la|payable|échéance|of)\b.*$|\s*[$€£¥]?\s*\d.*$/i;
+// Linear cut points (no `\s+…\s*` runs that CodeQL flags as polynomial): drop
+// everything from the first stop word, then from the first amount.
+const STOP_WORD = /\s(?:for|of|due|on|at|by|pour|de|d[ue]|à|le|la|payable|échéance)\b/i;
+const STOP_AMOUNT = /[$€£¥]?\d/;
+function cutAt(v: string, re: RegExp): string {
+  const i = v.search(re);
+  return i >= 0 ? v.slice(0, i) : v;
+}
+/** Chat text is short; parsing never needs more than this. */
+const MAX_PARSE = 300;
 function clean(v: string | undefined): string | null {
   if (!v) return null;
-  const out = v.replace(STOP, '').replace(/^(?:the|my|our|a|an|la|le|les|ma|mon|une?)\s+/i, '').replace(/[.,!?;:'"’]+$/, '').trim();
+  const out = cutAt(cutAt(v.trim(), STOP_WORD), STOP_AMOUNT).trim().replace(/^(?:the|my|our|a|an|la|le|les|ma|mon|une?)\s+/i, '').replace(/[.,!?;:'"’]+$/, '').trim();
   if (!out || out.length > 60 || /^\d/.test(out)) return null;
   return out;
 }
 
 /** The vendor a bill message names, or null. */
 export function parseBillVendor(text: string): string | null {
-  const t = text.trim();
+  const t = text.slice(0, MAX_PARSE).trim();
   const tries: RegExp[] = [
     /\bbill\s+from\s+([^\n]+)/i,
-    /\bfactures?\s+(?:de\s+)?fournisseur\s+(?:de\s+|d['’])\s*([^\n]+)/i,
-    /\bfactures?\s+(?:à|a)\s+payer\s+(?:de\s+|d['’])\s*([^\n]+)/i,
-    /\bfactures?\s+(?:de|d['’])\s*([A-Z][^\n]+)/,
-    /\bowe\s+(?:the\s+|my\s+|our\s+)?([^\d$\n]+?)\s+\$?\d/i,
-    /\bje dois\s+[\d\s.,]+\s*\$?\s*(?:à|au|aux)\s+(?:la\s+|le\s+|l['’]|mon\s+|ma\s+)?([^\d\n]+)/i,
-    /我欠\s*([^\d\s，,。]+?)\s*\d/,
+    /\bfactures?\s+(?:de\s)?fournisseur\s(?:de\s|d['’])([^\n]+)/i,
+    /\bfactures?\s+(?:à|a)\s+payer\s(?:de\s|d['’])([^\n]+)/i,
+    /\bfactures?\s(?:de\s|d['’])\s?([A-Z][^\n]+)/,
+    /\bowe\s([^\d$\n]+)\$?\d/i,
+    /\bje dois\s[\d\s.,$]*(?:à|au|aux)\s(?:la |le |l['’]|mon |ma )?([^\d\n]+)/i,
+    /我欠\s?([^\d\s，,。]+)\s?\d/,
     /\bowe\s+([A-Z][^\n]+)/,
     /来自\s*([^\s，,。的]+)/,
     /账单\s+([A-Za-z][\w&'’ -]{0,30}?)\s+\d/,
@@ -125,9 +134,10 @@ export function parseBillVendor(text: string): string | null {
  * record-expense), then the fr-CA order "120 $" / "84,50 $".
  */
 export function parseBillAmount(text: string, parse: (t: string) => number | null): number | null {
+  text = text.slice(0, MAX_PARSE);
   const a = parse(text);
   if (a) return a;
-  const m = text.match(/(\d{1,3}(?:[ \u00a0\u202f]\d{3})*|\d+)(?:,(\d{1,2}))?\s*\$/);
+  const m = text.match(/(?<!\d)(\d{1,3}(?:[ \u00a0\u202f]\d{3})*|\d+)(?:,(\d{1,2}))?\s?\$/);
   if (!m) {
     // Review I3: "I owe the landlord 1200" / "我欠房东1200元" — the number right
     // after an owe-phrase is the amount even without a currency sign.

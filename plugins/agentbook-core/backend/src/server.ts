@@ -3,7 +3,7 @@
  * Every financial action produces a balanced journal entry.
  * The constraint engine is code, not LLM prompts.
  */
-import { loadUnpaidBills, summarizeUnpaidBills } from './bill-amounts.js';
+import { isUnpaid, loadUnpaidBills, summarizeUnpaidBills } from './bill-amounts.js';
 import { agingBucket, chooseBillToPay, outstanding, parseBillAmount, parseBillVendor, parseDueDate, type OpenBillLike } from './bill-chat.js';
 import { applyTaxPhrase, taxSplitLine } from './expense-tax-phrase.js';
 import 'dotenv/config';
@@ -4699,7 +4699,7 @@ async function _executeClassificationCore(
       const r = await fetch(`${expenseBase}/api/v1/agentbook-expense/bills?status=all`, { headers: H });
       const j = await r.json() as { success?: boolean; data?: OpenBillLike[] };
       if (!r.ok || !j.success) throw new Error(`bills GET ${r.status}`);
-      return (j.data ?? []).filter((b) => b.status === 'open' || b.status === 'partial');
+      return (j.data ?? []).filter((b) => isUnpaid(b as Parameters<typeof isUnpaid>[0]));
     };
     try {
       if (skill === 'record-bill') {
