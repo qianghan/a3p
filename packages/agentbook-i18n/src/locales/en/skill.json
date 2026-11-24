@@ -154,5 +154,11 @@
   "cogs_period_quarter": "this quarter",
   "cogs_period_last_quarter": "last quarter",
   "cogs_period_year": "this year",
-  "cogs_load_failed": "I couldn’t load your cost of goods sold. Please try again."
+  "cogs_load_failed": "I couldn’t load your cost of goods sold. Please try again.",
+  "restatement_not_applicable": "Restatement only applies to businesses registered for GST/HST in Australia or Canada, so there is nothing to restate.",
+  "restatement_nothing": "Nothing to restate for tax year {year} ({from} – {to}): no older purchase still carries recoverable GST/HST in expense.",
+  "restatement_preview": "Tax year {year} ({from} – {to}): **{count}** older purchases include **{amount}** of recoverable GST/HST in expense. Restating would lower expenses and raise net profit by {amount}. Say “restate my GST for {year}” to apply it.",
+  "restatement_skipped_closed": "{count} in closed months will stay as they are.",
+  "restatement_done": "Done: restated **{count}** purchases for tax year {year}; **{amount}** moved from expenses to your GST/HST account.",
+  "restatement_load_failed": "I couldn’t run the restatement. Please try again."
 }

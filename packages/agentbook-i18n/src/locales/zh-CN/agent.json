@@ -36,5 +36,6 @@
   "pay_run_drafts_review": "请在 {page} 页面审核并处理。",
   "pay_run_drafts_processed": "该发薪周期已处理——请打开 {page} 页面查看。",
   "pay_run_drafts_failed": "无法创建草稿发薪，请在 {page} 页面重试。",
-  "sensitive_id_looks_invalid": "提示：该号码看起来不是有效的税号（TFN/SIN/SSN）——出于隐私保护，税号只能在员工资料页面填写，不能在聊天中输入。"
+  "sensitive_id_looks_invalid": "提示：该号码看起来不是有效的税号（TFN/SIN/SSN）——出于隐私保护，税号只能在员工资料页面填写，不能在聊天中输入。",
+  "restatement_confirm": "重述 {year} 纳税年度的以往采购：将可抵扣 GST/HST 从费用中转出（已结账月份除外）"
 }

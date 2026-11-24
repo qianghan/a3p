@@ -14,6 +14,7 @@ import { JURISDICTION_OPTIONS, defaultCurrencyFor, formatCurrencyCents } from '@
 // three language names.
 import { offerableLocales } from '@agentbook/i18n/catalog-client';
 import { SubscribeModal } from './SubscribeModal';
+import { TaxRestatementCard } from './TaxRestatementCard';
 import { useT } from '@/hooks/use-t';
 import { isQuebecRegion } from '@/lib/region-codes';
 
@@ -2238,6 +2239,9 @@ export function AgentBookSettingsPanel({ initialTab }: { initialTab?: string }):
                     </p>
                   )}
                 </div>
+              )}
+              {(form.jurisdiction === 'au' || form.jurisdiction === 'ca') && form.gstRegistered === true && (
+                <TaxRestatementCard jurisdiction={form.jurisdiction} currency={form.currency ?? defaultCurrencyFor(form.jurisdiction)} />
               )}
               <div>
                 <label className="block text-sm font-medium text-foreground">{t('core_ui.address')}</label>

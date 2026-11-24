@@ -93,5 +93,7 @@
   "cash_basis_unavailable_open_bills_one": "仍有 {count} 张账单未结清，无法使用收付实现制。现按权责发生制显示。",
   "cash_basis_unavailable_open_bills_other": "仍有 {count} 张账单未结清，无法使用收付实现制。现按权责发生制显示。",
   "return_sales_by_invoice_date": "收付实现制：采购在付款时计入。销售按发票日期申报。",
-  "return_wages_by_pay_date": "W1 和 W2 按发薪日期计入工资（未记录发薪日期的旧工资单按期末日期计入）。"
+  "return_wages_by_pay_date": "W1 和 W2 按发薪日期计入工资（未记录发薪日期的旧工资单按期末日期计入）。",
+  "restatement_note_other": "{year} 纳税年度有 {count} 笔采购的费用中仍含 GST/HST。请在 设置 › 企业资料 中重述。",
+  "restatement_note_one": "{year} 纳税年度有 {count} 笔采购的费用中仍含 GST/HST。请在 设置 › 企业资料 中重述。"
 }

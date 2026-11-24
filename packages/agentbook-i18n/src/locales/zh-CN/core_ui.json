@@ -406,5 +406,21 @@
   "pay_date_on": "发薪日 {date}",
   "pay_date_is_a_weekend": "发薪日是周末——法定报表使用此日期。",
   "track_inventory": "跟踪库存",
-  "track_inventory_help": "记录您买卖的库存。账单上带商品的采购计入存货（1500），而不是费用。"
+  "track_inventory_help": "记录您买卖的库存。账单上带商品的采购计入存货（1500），而不是费用。",
+  "restate_title": "重述以往采购中的 GST/HST",
+  "restate_help": "在启用税码之前记账的采购，其 GST/HST 计入了费用。重述会将可抵扣税额转入 GST/HST 账户，每次处理一个纳税年度。已结账的月份不会更改。",
+  "restate_tax_year": "纳税年度",
+  "restate_year_au": "{start}–{end}",
+  "restate_failed": "无法加载或应用重述，请重试。",
+  "restate_nothing": "本纳税年度没有需要重述的采购。",
+  "restate_pnl_delta": "重述后费用减少、净利润增加 {amount}。",
+  "restate_row_recoverable": "可抵扣 {amount}",
+  "restate_apply": "重述 {year}",
+  "restate_confirm_yes": "确认重述",
+  "restate_summary": "费用中仍含可抵扣税额的采购：{count} 笔（{amount}）。",
+  "restate_skipped_closed": "位于已结账月份、保持不变：{count} 笔。",
+  "restate_skipped_other": "需要人工核对（税额与税码不符，或已拆分）：{count} 笔。",
+  "restate_already_typed": "已有税码：{count} 笔。",
+  "restate_confirm": "确认重述这些采购（{count} 笔）？{amount} 将从费用转入 GST/HST 账户，每笔均按原日期记一笔更正分录。",
+  "restate_done": "已重述采购：{count} 笔。{amount} 已转入 GST/HST 账户。"
 }

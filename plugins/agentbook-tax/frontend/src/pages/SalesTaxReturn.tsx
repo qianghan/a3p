@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, FileSpreadsheet, AlertCircle } from 'lucide-react';
 import { formatMoney } from '@agentbook/i18n';
 import { TaxDisclaimer } from '../components/TaxDisclaimer';
+import { RestatementNote } from '../components/RestatementNote';
 import { useI18n } from '@naap/plugin-sdk';
 
 /**
@@ -173,6 +174,7 @@ export const SalesTaxReturnPage: React.FC = () => {
           </tbody>
         </table>
       </div>
+      <RestatementNote />
       {basis?.gstReportingBasis === 'cash' && (
         <p data-testid="return-sales-basis" className="text-xs text-muted-foreground">{t('tax_ui.return_sales_by_invoice_date')}</p>
       )}
