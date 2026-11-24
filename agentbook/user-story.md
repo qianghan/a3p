@@ -204,6 +204,7 @@
 
 ## Shipped: bills, tax codes, inventory, payroll (2026-11)
 
+- As an Australian or Canadian GST/HST registrant, I restate my older purchases (booked with GST inside the expense) for one tax year after seeing a preview of how many and how much; closed months stay as they are, and reports remind me until I do.
 - As a retailer, I turn on "Track inventory", add my items and their opening stock, and see stock on hand and its value at average cost.
 - As a retailer, I enter a supplier bill with item lines and the stock (net of recoverable GST) lands in Inventory, not in an expense.
 - As a retailer, I pick an item on an invoice line; the cost of what I sold moves to COGS when I create the invoice, and voiding the invoice puts the stock back.
