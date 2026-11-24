@@ -1,0 +1,107 @@
+{
+  "id": "pr5b-cogs",
+  "title": "PR 5B — inventory sales: COGS at invoice creation, void/edit reversal, COGS by period, shrinkage write-off",
+  "goals": [
+    {
+      "id": "G1-sale-posting",
+      "covers": [
+        "R-INV-2"
+      ],
+      "text": "Fake-ledger golden values: an invoice line with itemId (trackInventory on) posts stock_sale DR cogs | CR 1500 at weighted average, sourceId = the invoice line id, exactly once (replay posts nothing); lines without itemId or tenants with tracking off touch no stock; Float quantities convert exactly; AU books COGS to 5000, US/CA to 5990 (P&L per jurisdiction account); selling the last unit takes the remainder (value exactly 0 at qty 0); selling past on-hand flags negative and the next purchase trues up; void posts stock_sale_void restoring exactly; a qty edit reverses and reposts (stock_sale_edit_reverse + stock_sale line:rev); COGS by month/quarter nets voids; cross-tenant item ids are 404; a shrinkage write-off with a reason books 5995.",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/inventory-sales.test.ts",
+        "apps/web-next/src/lib/__tests__/inventory.test.ts"
+      ]
+    },
+    {
+      "id": "G2-invoice-routes",
+      "covers": [
+        "R-INV-2"
+      ],
+      "text": "Real Next handlers (mutation-checked on file copies: removing the call site in create, void or PATCH each fails this file): POST invoices relieves stock for item lines and refuses a foreign itemId with 404 and nothing written; POST invoices/:id/void returns stock and 1500/COGS/revenue to baseline; PATCH invoices/:id { lines } on a draft re-posts revenue (invoice_edit_reverse + invoice_edit) and COGS, a later void clears everything; a sent invoice refuses line edits (422); GET inventory/cogs reports the month net of voids.",
+      "tests": [
+        "apps/web-next/src/__tests__/api/v1/agentbook-invoice/invoice-cogs-routes.test.ts",
+        "apps/web-next/src/__tests__/api/v1/agentbook-invoice/invoices-route.test.ts"
+      ]
+    },
+    {
+      "id": "G3-surfaces",
+      "covers": [
+        "R-INV-2"
+      ],
+      "text": "New Invoice item picker (only when trackInventory is on; fills description + sale price; the POST carries itemId), Items page COGS-by-quarter section and Write off dialog (positive qty + required reason → negative adjust), chat skill query-cogs (before general-question, gated on trackInventory, nets voids, states the period, en/fr-CA/zh-CN catalog) reached through the real consultation triage for en/fr-CA/zh-CN phrasings.",
+      "tests": [
+        "plugins/agentbook-invoice/frontend/src/__tests__/new-invoice-item-picker.test.tsx",
+        "plugins/agentbook-expense/frontend/src/__tests__/items-page.test.tsx",
+        "plugins/agentbook-core/backend/src/__tests__/query-cogs-skill.test.ts",
+        "plugins/agentbook-core/backend/src/__tests__/new-skill-chat-routing.test.ts"
+      ]
+    },
+    {
+      "id": "G4-journal-property",
+      "covers": [
+        "R-X-1"
+      ],
+      "text": "Full-journal seeded property test (150 sequences, US/CA/AU tenants): bills (taxed, at_entry/at_payment, item lines), payments, payment voids, bill voids, opening stock, invoice stock sales / qty edits / voids, shrinkage adjustments and payroll entries keep Σdr = Σcr, journal 2000 = Σ open at_entry bills, and journal 1500 = Σ item values. It found two PR 5A defects, fixed here and mutation-checked: an at_payment item bill re-paid after a voided payment debited 1500 with no stock movement (purchase movements are now generation-keyed), and a relief of a negative stock value changed the sub-ledger with no journal (relief is clamped at 0).",
+      "tests": [
+        "apps/web-next/src/lib/__tests__/journal-property.test.ts",
+        "apps/web-next/src/lib/__tests__/purchases-property.test.ts",
+        "apps/web-next/src/lib/__tests__/inventory-sales.test.ts"
+      ]
+    },
+    {
+      "id": "G5-docs",
+      "covers": [
+        "R-X-2"
+      ],
+      "text": "Architecture, product, workflows and user-story docs describe the shipped programme (bills/AP, tax codes, inventory incl. sales/COGS, payroll employees and pay-run drafts) and the journal invariant.",
+      "tests": [
+        "apps/web-next/src/__tests__/architecture/programme-scorecard.test.ts"
+      ]
+    }
+  ],
+  "regression": {
+    "vitest": [
+      "apps/web-next/src/lib/__tests__/purchases.test.ts",
+      "apps/web-next/src/lib/__tests__/ledger-writer.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-expense/inventory-routes.test.ts",
+      "apps/web-next/src/__tests__/api/v1/agentbook-invoice/remind-route.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/query-stock-skill.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/skill-routing-canonical.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/skill-replies-locale.test.ts",
+      "plugins/agentbook-core/backend/src/__tests__/consultation-triage.test.ts"
+    ]
+  },
+  "ux": {
+    "vitest": [
+      "plugins/agentbook-invoice/frontend/src/__tests__/new-invoice-item-picker.test.tsx",
+      "plugins/agentbook-expense/frontend/src/__tests__/items-page.test.tsx",
+      "apps/web-next/src/__tests__/architecture/i18n-catalog.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-french-quality.test.ts",
+      "apps/web-next/src/__tests__/architecture/i18n-plugin-context.test.ts"
+    ],
+    "playwright": [],
+    "checklist": "docs/superpowers/scorecards/pr5b-cogs-ux-checklist.md",
+    "postChecklist": "docs/superpowers/scorecards/pr5b-cogs-ux-postdeploy.md"
+  },
+  "launch": {
+    "docs": [
+      "agentbook/skills/workflows.md",
+      "agentbook/skills/architecture.md",
+      "agentbook/skills/product.md",
+      "agentbook/user-story.md"
+    ],
+    "rollback": "Revert the PR. No schema change (AbInvoiceLine.itemId and the inventory tables shipped in 5A). Invoices created meanwhile keep balanced stock_sale entries (DR cogs | CR 1500) and their movements; after a revert, voiding such an invoice reverses revenue but NOT its COGS — reverse those with an items/:id/adjust (+qty at the sold value) or re-apply the PR before voiding. Edited drafts keep their invoice_edit entries (balanced; invoice.journalEntryId points at the live one). Set trackInventory=false to stop new COGS postings without a revert.",
+    "prodPlaywright": [
+      "tests/e2e/mobile-app/inventory-sales.spec.ts"
+    ],
+    "playwrightConfig": "tests/e2e/mobile-app/playwright.config.ts"
+  },
+  "acceptedGates": {
+    "R3": {
+      "reason": "Local full suite fails only on vitest timeouts (STACK_TRACE_ERROR) in two files this PR does not touch; the dev machine was at load average 65 from other apps; CI Shell Tests (DB-backed full suite) is green on #658.",
+      "isolationEvidence": "plugin-icon 11/11 and agentbook-account-hard-delete 6/6 passed alone on 2026-11-23",
+      "approvedBy": "owner (chat, 2026-11-21 standing rule for load-timeout-only failures)"
+    }
+  }
+}
