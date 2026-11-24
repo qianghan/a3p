@@ -134,6 +134,11 @@ export function createFakeLedgerDb() {
         const r = state.expenses.find((e) => matches(e, where));
         return r ? { ...r } : null;
       },
+      findMany: async ({ where }: Row = {}) =>
+        state.expenses
+          .filter((e) => matches(e, where))
+          .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+          .map((e) => ({ ...e })),
       update: async ({ where, data }: Row) => {
         const r = state.expenses.find((e) => matches(e, where));
         if (!r) throw Object.assign(new Error('not found'), { code: 'P2025' });
