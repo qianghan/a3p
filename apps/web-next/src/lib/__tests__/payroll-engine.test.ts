@@ -162,18 +162,18 @@ describe('US_STATE_INCOME_TAX_RATES completeness (US-GATE remediation)', () => {
   it('previously-uncovered states (e.g. VA, MA, WI) now withhold real non-zero state tax, not the old silent $0', () => {
     // Before this fix, any state outside the original 15-state table fell
     // through `?? 0`, withholding $0 indistinguishable from a genuine
-    // no-income-tax state. $5,000.00 gross at VA's 5.75% flat approximation
-    // = $287.50 = 28750 cents.
+    // no-income-tax state. The rate now applies above the federal standard
+    // deduction: ($130,000 − $14,600) × 5.75% / 26 = $255.21.
     const va = calcPay({ jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26, filingStatus: 'single', region: 'VA' });
-    expect(va.stateTaxCents).toBe(28750);
+    expect(va.stateTaxCents).toBe(25521);
 
-    // MA at 9.00% top-marginal approximation = $450.00 = 45000 cents.
+    // MA: $115,400 × 9.00% / 26 = $399.46.
     const ma = calcPay({ jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26, filingStatus: 'single', region: 'MA' });
-    expect(ma.stateTaxCents).toBe(45000);
+    expect(ma.stateTaxCents).toBe(39946);
 
-    // WI at 7.65% top-marginal approximation = $382.50 = 38250 cents.
+    // WI: $115,400 × 7.65% / 26 = $339.54.
     const wi = calcPay({ jurisdiction: 'us', grossCents: 500000, payPeriodsPerYear: 26, filingStatus: 'single', region: 'WI' });
-    expect(wi.stateTaxCents).toBe(38250);
+    expect(wi.stateTaxCents).toBe(33954);
   });
 });
 

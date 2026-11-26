@@ -55,6 +55,32 @@ const US_MARRIED: Bracket[] = [
   { upTo: Infinity, rate: 0.37 },
 ];
 const US_SS_WAGE_BASE = 184_500_00; // 2026 SSA-announced wage base
+// Standard deduction for the same (2024) tax year as the brackets above.
+// Without it every employee was withheld on income the brackets exempt.
+const US_STD_DEDUCTION = { single: 14_600_00, married: 29_200_00 };
+
+// Progressive state brackets for the states whose top-rate approximation
+// over-withheld most (single-filer 2024 tables, standard deduction first).
+// Married filers use the single table: it can only over-withhold.
+const US_STATE_BRACKETS: Record<string, { deduction: number; brackets: Bracket[] }> = {
+  CA: {
+    deduction: 5_540_00,
+    brackets: [
+      { upTo: 10_756_00, rate: 0.01 }, { upTo: 25_499_00, rate: 0.02 }, { upTo: 40_245_00, rate: 0.04 },
+      { upTo: 55_866_00, rate: 0.06 }, { upTo: 70_606_00, rate: 0.08 }, { upTo: 360_659_00, rate: 0.093 },
+      { upTo: 432_787_00, rate: 0.103 }, { upTo: 721_314_00, rate: 0.113 }, { upTo: 1_000_000_00, rate: 0.123 },
+      { upTo: Infinity, rate: 0.133 },
+    ],
+  },
+  NY: {
+    deduction: 8_000_00,
+    brackets: [
+      { upTo: 8_500_00, rate: 0.04 }, { upTo: 11_700_00, rate: 0.045 }, { upTo: 13_900_00, rate: 0.0525 },
+      { upTo: 80_650_00, rate: 0.055 }, { upTo: 215_400_00, rate: 0.06 }, { upTo: 1_077_550_00, rate: 0.0685 },
+      { upTo: 5_000_000_00, rate: 0.0965 }, { upTo: 25_000_000_00, rate: 0.103 }, { upTo: Infinity, rate: 0.109 },
+    ],
+  },
+};
 
 // Flat per-state income-tax approximation for all 50 states + DC, matching
 // this file's documented precision level ("reasonable approximations for
@@ -86,14 +112,20 @@ export const US_STATE_INCOME_TAX_RATES: Record<string, number> = {
 function calcUS(input: PayInput): PayResult {
   const annual = input.grossCents * input.payPeriodsPerYear;
   const brackets = input.filingStatus === 'married' ? US_MARRIED : US_SINGLE;
-  const federalTaxCents = Math.round(progressive(annual, brackets) / input.payPeriodsPerYear);
+  const stdDeduction = input.filingStatus === 'married' ? US_STD_DEDUCTION.married : US_STD_DEDUCTION.single;
+  const federalTaxCents = Math.round(progressive(annual - stdDeduction, brackets) / input.payPeriodsPerYear);
   // FICA: 6.2% SS up to wage base + 1.45% Medicare (no cap).
   const ssAnnual = Math.min(annual, US_SS_WAGE_BASE);
   const ssCents = Math.round((ssAnnual * 0.062) / input.payPeriodsPerYear);
   const medicareCents = Math.round((input.grossCents) * 0.0145);
   const ficaCents = ssCents + medicareCents;
-  const stateRate = US_STATE_INCOME_TAX_RATES[(input.region || '').toUpperCase()] ?? 0;
-  const stateTaxCents = Math.round(input.grossCents * stateRate);
+  const state = (input.region || '').toUpperCase();
+  const stateTable = US_STATE_BRACKETS[state];
+  // Other states: their rate applies to income above the federal standard
+  // deduction (most states exempt a similar first slice), not to every dollar.
+  const stateTaxCents = stateTable
+    ? Math.round(progressive(annual - stateTable.deduction, stateTable.brackets) / input.payPeriodsPerYear)
+    : Math.round((Math.max(0, annual - stdDeduction) * (US_STATE_INCOME_TAX_RATES[state] ?? 0)) / input.payPeriodsPerYear);
   const netCents = input.grossCents - federalTaxCents - ficaCents - stateTaxCents;
   return { grossCents: input.grossCents, federalTaxCents, stateTaxCents, ficaCents, otherDeductCents: 0, netCents, sgCents: 0 };
 }
@@ -147,6 +179,22 @@ const CA_PROVINCIAL_BRACKETS: Record<string, Bracket[]> = {
   NU: [{ upTo: 5470700, rate: 0.04 }, { upTo: 10941300, rate: 0.07 }, { upTo: 17788100, rate: 0.09 }, { upTo: Infinity, rate: 0.115 }],
 };
 
+// Basic personal amounts (2025): a non-refundable credit at each
+// jurisdiction's lowest rate. Without them every Canadian employee was
+// withheld on the first ~$16k as if it were taxable.
+const CA_FED_BPA = 16_129_00;
+const CA_PROVINCIAL_BPA: Record<string, number> = {
+  ON: 12_747_00, BC: 12_932_00, AB: 22_323_00, QC: 18_571_00, MB: 15_780_00, SK: 19_491_00, NB: 13_396_00,
+  NS: 8_744_00, PE: 14_250_00, NL: 11_067_00, YT: 16_129_00, NT: 17_842_00, NU: 19_274_00,
+};
+// CPP and QPP contributions start above the $3,500 basic exemption.
+const CA_PENSION_EXEMPTION = 3_500_00;
+
+/** Bracket tax less the basic personal amount credit at the lowest rate, floored at 0. */
+function taxAfterBpa(annualCents: number, brackets: Bracket[], bpaCents: number): number {
+  return Math.max(0, progressive(annualCents, brackets) - Math.round(bpaCents * brackets[0].rate));
+}
+
 /**
  * Splits the combined CPP/QPP+EI(+QPIP) deduction back into its real,
  * separately-reportable components, given an EMPLOYEE'S AGGREGATED ANNUAL
@@ -162,16 +210,17 @@ export function splitCaDeductions(annualGrossCents: number, region?: string): {
   qpipCents: number;
 } {
   const isQuebec = (region || '').toUpperCase() === 'QC';
+  const pensionable = Math.max(0, annualGrossCents - CA_PENSION_EXEMPTION);
   if (isQuebec) {
     return {
-      pensionCents: Math.min(Math.round(annualGrossCents * QC_QPP_RATE), QC_QPP_MAX),
+      pensionCents: Math.min(Math.round(pensionable * QC_QPP_RATE), QC_QPP_MAX),
       pensionBoxLabel: 'QPP',
       eiCents: Math.min(Math.round(annualGrossCents * QC_EI_RATE), QC_EI_MAX),
       qpipCents: Math.min(Math.round(annualGrossCents * QC_QPIP_RATE), QC_QPIP_MAX),
     };
   }
   return {
-    pensionCents: Math.min(Math.round(annualGrossCents * 0.0595), CA_CPP_MAX),
+    pensionCents: Math.min(Math.round(pensionable * 0.0595), CA_CPP_MAX),
     pensionBoxLabel: 'CPP',
     eiCents: Math.min(Math.round(annualGrossCents * 0.0166), CA_EI_MAX),
     qpipCents: 0,
@@ -180,7 +229,7 @@ export function splitCaDeductions(annualGrossCents: number, region?: string): {
 
 function calcCA(input: PayInput): PayResult {
   const annual = input.grossCents * input.payPeriodsPerYear;
-  const federalTaxCents = Math.round(progressive(annual, CA_FED) / input.payPeriodsPerYear);
+  const federalTaxCents = Math.round(taxAfterBpa(annual, CA_FED, CA_FED_BPA) / input.payPeriodsPerYear);
   // Provincial income tax — carried in stateTaxCents (the engine's generic
   // "sub-national income tax" slot, same as US state tax). Every Canadian pay
   // run owes a provincial portion; an absent or unrecognized province falls
@@ -188,8 +237,8 @@ function calcCA(input: PayInput): PayResult {
   // ca/tax-brackets.ts) rather than the previous silent $0, which under-
   // withheld every Canadian employee.
   const province = (input.region || '').toUpperCase();
-  const provBrackets = CA_PROVINCIAL_BRACKETS[province] ?? CA_PROVINCIAL_BRACKETS['ON'];
-  const provincialTaxCents = Math.round(progressive(annual, provBrackets) / input.payPeriodsPerYear);
+  const prov = CA_PROVINCIAL_BRACKETS[province] ? province : 'ON';
+  const provincialTaxCents = Math.round(taxAfterBpa(annual, CA_PROVINCIAL_BRACKETS[prov], CA_PROVINCIAL_BPA[prov]) / input.payPeriodsPerYear);
   const split = splitCaDeductions(annual, input.region);
   const ficaCents = Math.round((split.pensionCents + split.eiCents + split.qpipCents) / input.payPeriodsPerYear);
   const netCents = input.grossCents - federalTaxCents - provincialTaxCents - ficaCents;
