@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { calcPay } from '@/lib/payroll-engine';
 
 describe('calcPay — US state income tax withholding', () => {
-  it('withholds non-zero state tax for a US employee in California at the documented CA rate', () => {
+  it('withholds California state tax through CA brackets after the CA standard deduction', () => {
     const result = calcPay({
       jurisdiction: 'us',
       grossCents: 400000, // $4,000 gross this period
@@ -10,7 +10,9 @@ describe('calcPay — US state income tax withholding', () => {
       filingStatus: 'single',
       region: 'CA',
     });
-    expect(result.stateTaxCents).toBe(Math.round(400000 * 0.1330));
+    // $104,000/yr − $5,540 = $98,460 through the 1%…9.3% brackets = $5,699.14/yr → $219.20/period.
+    // The old top-rate approximation (13.3% of every dollar) withheld $532.00.
+    expect(result.stateTaxCents).toBe(21920);
     expect(result.stateTaxCents).toBeGreaterThan(0);
   });
 

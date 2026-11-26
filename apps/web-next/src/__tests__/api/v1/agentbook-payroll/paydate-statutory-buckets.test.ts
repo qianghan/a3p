@@ -65,6 +65,11 @@ const db: Row = {
     findFirst: async ({ where, orderBy }: Row) => { const r = sortRuns(state.runs.filter((x) => match(x, where)), orderBy)[0]; return r ? withStubs(r) : null; },
     findMany: async ({ where }: Row) => state.runs.filter((x) => match(x, where)).map(withStubs),
     update: async ({ where, data }: Row) => { const r = state.runs.find((x) => x.id === where.id)!; Object.assign(r, data); return withStubs(r); },
+    updateMany: async ({ where, data }: Row) => {
+      const hits = state.runs.filter((x) => x.id === where.id && !where.status.notIn.includes(x.status));
+      hits.forEach((r) => Object.assign(r, data));
+      return { count: hits.length };
+    },
   },
   abPayStub: { findMany: async ({ where }: Row) => state.stubs.filter((s) => match(s, where)) },
   abInvoice: { findMany: async () => [] },

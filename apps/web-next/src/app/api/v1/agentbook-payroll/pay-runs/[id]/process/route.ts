@@ -21,6 +21,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
+class AlreadyProcessedError extends Error {}
+
 interface RouteCtx { params: Promise<{ id: string }> }
 
 export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextResponse> {
@@ -50,6 +52,15 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
     const jurisdiction = cfg?.jurisdiction || 'us';
 
     const updated = await db.$transaction(async (tx) => {
+      // Claim the run atomically: the status check above is only a fast path.
+      // Two concurrent requests both pass it; only one wins this update, and
+      // the loser rolls back before anything is posted.
+      const claim = await tx.abPayRun.updateMany({
+        where: { id, tenantId, status: { notIn: ['processed', 'paid'] } },
+        data: { status: 'paid', processedAt: new Date() },
+      });
+      if (claim.count === 0) throw new AlreadyProcessedError();
+
       let journalEntryId: string | null = null;
       if (salaryAccount && cashAccount && split.grossCents > 0) {
         let liabAccount = await tx.abAccount.findFirst({
@@ -90,6 +101,9 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
             date: run.periodEnd,
             memo: `Payroll ${run.periodStart.toISOString().slice(0, 10)}–${run.periodEnd.toISOString().slice(0, 10)}`,
             sourceType: 'payroll',
+            // Keyed on the run so @@unique([tenantId, sourceType, sourceId])
+            // refuses a second journal for the same run.
+            sourceId: run.id,
             verified: true,
             lines: { create: lines },
           },
@@ -147,13 +161,16 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
 
       return tx.abPayRun.update({
         where: { id },
-        data: { status: 'paid', processedAt: new Date(), journalEntryId },
+        data: { journalEntryId },
         include: { stubs: true },
       });
     });
 
     return NextResponse.json({ success: true, data: { ...updated, ledger: split } });
   } catch (err) {
+    if (err instanceof AlreadyProcessedError || (err as { code?: string })?.code === 'P2002') {
+      return NextResponse.json({ success: false, error: 'pay run already processed' }, { status: 409 });
+    }
     console.error('[agentbook-payroll/pay-runs/:id/process] failed:', err);
     return NextResponse.json({ success: false, error: publicErrorMessage(err) }, { status: 500 });
   }
