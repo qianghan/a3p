@@ -56,6 +56,7 @@ function sortRuns(rows: Row[], orderBy?: Row) {
 }
 
 const db: Row = {
+  abFiscalPeriod: { findUnique: async () => null },
   abTenantConfig: { findUnique: async () => ({ jurisdiction: state.jurisdiction, companyName: 'Fixture Co', gstRegistered: true }) },
   abEmployee: {
     findMany: async () => [{ id: 'e1', name: 'Ann', jurisdiction: null, region: null }],

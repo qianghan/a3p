@@ -7,6 +7,7 @@ import { prisma as db } from '@naap/database';
 import { reportError } from '@/lib/logger';
 import { requireCronSecret } from '@/lib/cron-auth';
 import { matchTransactionWithCandidates, REVIEW_THRESHOLD } from '@/lib/agentbook-payment-matcher';
+import { bookExpenseJournalEntry, ensureExpenseBookingAccounts, ExpenseLedgerPeriodClosedError } from '@/lib/agentbook-expense-ledger';
 
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -78,21 +79,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           }, 5);
           // Review M4: only a real proposal (≥ the review threshold) holds the debit back.
           if (cands.some((c) => c.kind === 'bill' && c.score >= REVIEW_THRESHOLD)) continue;
-          // Auto-record silently
-          await db.abExpense.create({
-            data: {
-              tenantId: tenant.userId,
-              amountCents: Math.abs(tx.amount),
-              categoryId: pattern.categoryId,
-              date: new Date(tx.date),
-              description: `Auto: ${tx.name || tx.merchantName}`,
-              confidence: pattern.confidence,
-            },
-          });
-          await db.abBankTransaction.update({
-            where: { id: tx.id },
-            data: { matchStatus: 'matched' },
-          });
+          // Auto-record silently — booked to the ledger in the same
+          // transaction (launch finding F5: these rows had no journal, so the
+          // ledger and P&L disagreed). A closed period leaves the debit pending.
+          await ensureExpenseBookingAccounts(tenant.userId);
+          try {
+            await db.$transaction(async (t) => {
+              const expense = await t.abExpense.create({
+                data: {
+                  tenantId: tenant.userId,
+                  amountCents: Math.abs(tx.amount),
+                  categoryId: pattern.categoryId,
+                  date: new Date(tx.date),
+                  description: `Auto: ${tx.name || tx.merchantName}`,
+                  confidence: pattern.confidence,
+                  status: 'confirmed',
+                  source: 'bank_sync',
+                  currency: tenant.defaultCurrency || tenant.currency || 'USD',
+                },
+              });
+              await bookExpenseJournalEntry(tenant.userId, expense.id, t);
+              await t.abBankTransaction.update({
+                where: { id: tx.id },
+                data: { matchStatus: 'matched', matchedExpenseId: expense.id },
+              });
+            });
+          } catch (err) {
+            if (!(err instanceof ExpenseLedgerPeriodClosedError)) throw err;
+          }
         }
       }
     }
