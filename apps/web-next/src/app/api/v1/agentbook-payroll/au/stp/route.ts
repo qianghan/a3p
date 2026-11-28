@@ -62,7 +62,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     // Every pay run in the FY up to (and including) the target → YTD basis.
     const runs = await db.abPayRun.findMany({
-      where: { tenantId, ...payRunStatutoryDateWhere({ gte: fyStart, lte: targetPayDate }) },
+      where: { tenantId, status: 'paid', ...payRunStatutoryDateWhere({ gte: fyStart, lte: targetPayDate }) },
       include: { stubs: { select: { employeeId: true, employeeName: true, grossCents: true, federalTaxCents: true, sgCents: true } } },
     });
 

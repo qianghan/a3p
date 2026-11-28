@@ -70,7 +70,7 @@ const QC_MIXED_EXPENSES = [
   { amountCents: 10_500, taxAmountCents: 500, taxCode: 'GST', recoverableTaxCents: 500 },
   // EXEMPT with OCR tax 300 kept → no ITC
   { amountCents: 3_300, taxAmountCents: 300, taxCode: 'EXEMPT', recoverableTaxCents: 0 },
-  // untyped legacy: whole taxAmountCents is the ITC (today's behaviour)
+  // untyped legacy: tax split by QC rates (F3) — GST 1300·5/14.975 = 434, QST 866
   { amountCents: 11_300, taxAmountCents: 1_300, taxCode: null, recoverableTaxCents: 0 },
 ];
 
@@ -80,10 +80,10 @@ describe('GET /agentbook-tax/ca/gst-hst-return — typed expenses (PR 2b.7 golde
     invoiceFindMany.mockResolvedValue([]);
     expenseFindMany.mockResolvedValue(QC_MIXED_EXPENSES);
     const body = await (await GET(req())).json();
-    // line 108 = 5000 (GST part of GST_QST) + 500 (GST) + 0 (EXEMPT, not its 300) + 1300 (untyped) = 6800
-    expect(body.data.line108ItcCents).toBe(6_800);
-    // QST ITR = 9975 (QST part of GST_QST)
-    expect(body.data.qstItrCents).toBe(9_975);
+    // line 108 = 5000 (GST part of GST_QST) + 500 (GST) + 0 (EXEMPT, not its 300) + 434 (untyped GST share) = 5934
+    expect(body.data.line108ItcCents).toBe(5_934);
+    // QST ITR = 9975 (QST part of GST_QST) + 866 (untyped QST share)
+    expect(body.data.qstItrCents).toBe(10_841);
   });
 
   it('not QST-registered: QST ITR is 0 (stored recoverable is GST-only)', async () => {

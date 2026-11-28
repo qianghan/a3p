@@ -62,7 +62,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // AU PAYG amount withheld; grossCents is the wages paid. PR 4d: bucketed
       // by pay date (legacy runs without one keep periodEnd).
       db.abPayRun.findMany({
-        where: { tenantId, ...payRunStatutoryDateWhere({ gte, lte }) },
+        where: { tenantId, status: 'paid', ...payRunStatutoryDateWhere({ gte, lte }) }, // drafts never reach W1/W2
         select: { stubs: { select: { grossCents: true, federalTaxCents: true } } },
       }),
       // PR 3bc.6: bills (never AbExpense rows) — accrual by billDate, cash by payment date pro-rata.

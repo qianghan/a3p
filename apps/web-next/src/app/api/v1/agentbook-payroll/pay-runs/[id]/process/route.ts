@@ -4,8 +4,11 @@
  *   plus (AU only, when sgCents > 0) Dr Superannuation Expense / Cr
  *   Superannuation Payable — additive on top of gross, not part of the
  *   withheld/net split above.
- * Falls back to crediting cash for the full gross if no liability account is
- * available. Idempotent: a run already processed returns 409.
+ * US runs also accrue the employer's share (FICA match + FUTA): Dr Payroll
+ * Taxes / Cr Payroll Liabilities, so the liability equals the deposits that
+ * marking them paid later clears. Refuses (422) a run in a closed fiscal
+ * period or one with no salary/cash account — it is never marked paid without
+ * its journal. Idempotent: a run already processed returns 409.
  */
 
 import 'server-only';
@@ -14,6 +17,7 @@ import { prisma as db } from '@naap/database';
 import { safeResolveAgentbookTenant } from '@/lib/agentbook-tenant';
 import { splitPayrollEntry } from '@/lib/payroll-ledger';
 import { computeDeposit, computeSgDeposit, computeFutaDeposit } from '@/lib/payroll-deposits';
+import { assertPeriodOpen, LedgerPeriodClosedError } from '@/lib/ledger-writer';
 import { publicErrorMessage } from '@/lib/api-error';
 import { statutoryPayDate } from '@/lib/payroll-pay-date';
 
@@ -51,6 +55,20 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
     const cfg = await db.abTenantConfig.findUnique({ where: { userId: tenantId } });
     const jurisdiction = cfg?.jurisdiction || 'us';
 
+    if (split.grossCents > 0 && (!salaryAccount || !cashAccount)) {
+      return NextResponse.json({
+        success: false,
+        error: 'no salary expense or cash (1000) account — set up the chart of accounts before processing payroll',
+        code: 'no_ledger_accounts',
+      }, { status: 422 });
+    }
+    await assertPeriodOpen(db, tenantId, run.periodEnd);
+
+    // Employer-side taxes the deposits include but the stubs don't (US only).
+    const employerTaxCents = jurisdiction === 'us'
+      ? run.stubs.reduce((s, st) => s + st.ficaCents, 0) + computeFutaDeposit(run.stubs, statutoryPayDate(run)).amountCents
+      : 0;
+
     const updated = await db.$transaction(async (tx) => {
       // Claim the run atomically: the status check above is only a fast path.
       // Two concurrent requests both pass it; only one wins this update, and
@@ -60,13 +78,14 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
         data: { status: 'paid', processedAt: new Date() },
       });
       if (claim.count === 0) throw new AlreadyProcessedError();
+      await assertPeriodOpen(tx, tenantId, run.periodEnd);
 
       let journalEntryId: string | null = null;
       if (salaryAccount && cashAccount && split.grossCents > 0) {
         let liabAccount = await tx.abAccount.findFirst({
           where: { tenantId, accountType: 'liability', isActive: true, name: { contains: 'payroll', mode: 'insensitive' } },
         });
-        if (!liabAccount && split.withheldCents > 0) {
+        if (!liabAccount && (split.withheldCents > 0 || employerTaxCents > 0)) {
           liabAccount = await tx.abAccount.create({
             data: { tenantId, code: '2400', name: 'Payroll Liabilities', accountType: 'liability', isActive: true },
           });
@@ -77,6 +96,15 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
         ];
         if (liabAccount && split.withheldCents > 0) {
           lines.push({ tenantId, accountId: liabAccount.id, debitCents: 0, creditCents: split.withheldCents, description: 'Payroll — taxes withheld' });
+        }
+        if (liabAccount && employerTaxCents > 0) {
+          const taxExpenseAccount = await tx.abAccount.findFirst({
+            where: { tenantId, accountType: 'expense', isActive: true, name: { contains: 'payroll tax', mode: 'insensitive' } },
+          }) || await tx.abAccount.create({ data: { tenantId, code: '6810', name: 'Payroll Taxes (employer)', accountType: 'expense', isActive: true } });
+          lines.push(
+            { tenantId, accountId: taxExpenseAccount.id, debitCents: employerTaxCents, creditCents: 0, description: 'Payroll — employer taxes (FICA match + FUTA)' },
+            { tenantId, accountId: liabAccount.id, debitCents: 0, creditCents: employerTaxCents, description: 'Payroll — employer taxes payable' },
+          );
         }
         if (split.sgCents > 0) {
           const [superExpenseAccount, superPayableAccount] = await Promise.all([
@@ -168,6 +196,9 @@ export async function POST(request: NextRequest, ctx: RouteCtx): Promise<NextRes
 
     return NextResponse.json({ success: true, data: { ...updated, ledger: split } });
   } catch (err) {
+    if (err instanceof LedgerPeriodClosedError) {
+      return NextResponse.json({ success: false, error: 'this fiscal period is closed — reopen it before posting', code: 'period_closed' }, { status: 422 });
+    }
     if (err instanceof AlreadyProcessedError || (err as { code?: string })?.code === 'P2002') {
       return NextResponse.json({ success: false, error: 'pay run already processed' }, { status: 409 });
     }

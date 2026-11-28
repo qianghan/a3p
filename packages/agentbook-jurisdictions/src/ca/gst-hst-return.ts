@@ -16,7 +16,7 @@
  * testable, matching the other ca/* pack helpers.
  */
 
-import { computeCaLineTax } from './tax-codes.js';
+import { computeCaLineTax, defaultCaTaxCode, CA_MEALS_RECOVERABLE_FRACTION } from './tax-codes.js';
 
 /**
  * Only the combined recoverable figure is stored, so a GST_QST row's credit is
@@ -39,6 +39,33 @@ function splitGstQst(p: GstHstPurchaseLine, rec: number, input: GstHstReturnInpu
   }
   const gst = Math.min(rec, gstShare);
   return { gst, qst: Math.max(0, rec - gstShare) };
+}
+
+/**
+ * An untyped (legacy) row stores only the total tax paid. Claiming all of it
+ * over-claims (launch finding F3): in a PST province the PST share is never
+ * recoverable, a QST share is a Revenu Québec ITR (not line 108), and meals
+ * get 50%. Split the stored tax by the province's default code's component
+ * rates; with no usable province, the whole amount is GST (meals still 50%).
+ */
+function splitUntyped(p: GstHstPurchaseLine, input: GstHstReturnInput): { gst: number; qst: number } {
+  const paid = Math.max(0, p.taxPaidCents);
+  const fraction = p.isMeal ? CA_MEALS_RECOVERABLE_FRACTION : 1;
+  try {
+    const r = computeCaLineTax({
+      jurisdiction: 'ca', region: input.region || null, taxCode: defaultCaTaxCode(input.region || null),
+      amountCents: 1_000_000, inclusive: false, isMeal: false,
+      registration: { gstRegistered: true, qstRegistered: true },
+    });
+    const total = r.components.reduce((s, c) => s + c.cents, 0);
+    if (total <= 0) return { gst: 0, qst: 0 };
+    const share = (t: string[]) => r.components.filter((c) => t.includes(c.type)).reduce((s, c) => s + c.cents, 0) / total;
+    const gst = Math.round(paid * share(['GST', 'HST']) * fraction);
+    const qst = input.qstRegistered === true ? Math.round(paid * share(['QST']) * fraction) : 0;
+    return { gst, qst };
+  } catch {
+    return { gst: Math.round(paid * fraction), qst: 0 };
+  }
 }
 
 export interface GstHstSalesLine {
@@ -94,7 +121,12 @@ export function computeGstHstReturn(input: GstHstReturnInput): GstHstReturn {
   let qstItr = 0;
   for (const p of input.purchases) {
     const typed = p.taxCode != null && p.taxCode !== '';
-    if (!typed) { line108 += p.taxPaidCents; continue; }
+    if (!typed) {
+      const { gst, qst } = splitUntyped(p, input);
+      line108 += gst;
+      qstItr += qst;
+      continue;
+    }
     const rec = p.recoverableTaxCents ?? 0;
     if (p.taxCode === 'GST_QST' && rec !== 0) {
       // Invariant: gst + qst === rec exactly; each component may differ from the stored split by <=2c when printed OCR tax was adopted.

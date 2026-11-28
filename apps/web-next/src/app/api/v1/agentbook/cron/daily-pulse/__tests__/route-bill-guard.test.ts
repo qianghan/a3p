@@ -11,18 +11,25 @@ vi.mock('@/lib/logger', () => ({ reportError: vi.fn() }));
 vi.mock('@/lib/cron-auth', () => ({ requireCronSecret: () => null }));
 const cands = vi.fn(async (..._a: unknown[]): Promise<any[]> => []);
 vi.mock('@/lib/agentbook-payment-matcher', () => ({ matchTransactionWithCandidates: (...a: unknown[]) => cands(...a), REVIEW_THRESHOLD: 0.55 }));
-const expenseCreate = vi.fn(async (a: any) => a.data);
+const expenseCreate = vi.fn(async (a: any) => ({ id: 'e1', ...a.data }));
+vi.mock('@/lib/agentbook-expense-ledger', () => ({
+  ensureExpenseBookingAccounts: async () => undefined,
+  bookExpenseJournalEntry: async () => ({ booked: true, journalEntryId: 'je1' }),
+  ExpenseLedgerPeriodClosedError: class extends Error {},
+}));
 const txnFindMany = vi.fn(async (_a: any): Promise<any[]> => []);
 const txnUpdate = vi.fn(async (_a: any) => ({}));
-vi.mock('@naap/database', () => ({
-  prisma: {
+vi.mock('@naap/database', () => {
+  const prisma: any = {
     abTenantConfig: { findMany: async () => [{ userId: 't1', timezone: 'America/New_York' }] },
     abExpense: { aggregate: async () => ({ _sum: { amountCents: 0 }, _count: 0 }), count: async () => 0, create: (a: any) => expenseCreate(a) },
     abEvent: { create: async () => ({}) },
     abBankTransaction: { findMany: (a: any) => txnFindMany(a), update: (a: any) => txnUpdate(a) },
     abPattern: { findFirst: async () => ({ categoryId: 'acct-util', confidence: 0.95 }) },
-  },
-}));
+  };
+  prisma.$transaction = (fn: (tx: any) => unknown) => fn(prisma);
+  return { prisma };
+});
 
 import { GET } from '../route';
 

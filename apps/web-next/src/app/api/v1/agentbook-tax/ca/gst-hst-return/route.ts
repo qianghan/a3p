@@ -71,9 +71,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }));
     const purchaseRows = [...expenses, ...billRows];
 
-    // Meals flag for GST_QST splits — the SAME isMealsAccount decision posting used.
+    // Meals flag for GST_QST and untyped splits — the SAME isMealsAccount decision posting used.
     const mealCatIds = new Set<string>();
-    const catIds = [...new Set(purchaseRows.filter((e) => e.taxCode === 'GST_QST' && e.categoryId).map((e) => e.categoryId as string))];
+    const catIds = [...new Set(purchaseRows.filter((e) => (e.taxCode === 'GST_QST' || !e.taxCode) && e.categoryId).map((e) => e.categoryId as string))];
     if (catIds.length > 0) {
       const accts = await db.abAccount.findMany({ where: { tenantId, id: { in: catIds } }, select: { id: true, name: true, taxCategory: true } });
       for (const a of accts) if (isMealsAccount(a)) mealCatIds.add(a.id);
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         netSalesCents: i.amountCents - (i.taxCents ?? 0),
         taxCollectedCents: i.taxCents ?? 0,
       })),
-      // PR 2b.7: typed rows → recoverableTaxCents (QST part split out); untyped → taxAmountCents.
+      // PR 2b.7: typed rows → recoverableTaxCents (QST part split out); untyped → taxAmountCents split by province (F3).
       purchases: purchaseRows.map((e) => ({
         taxPaidCents: e.taxAmountCents ?? 0,
         taxCode: e.taxCode,

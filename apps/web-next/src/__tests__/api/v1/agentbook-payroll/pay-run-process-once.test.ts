@@ -10,6 +10,8 @@ type Row = Record<string, any>;
 let run: Row;
 let journals: Row[];
 let deposits: Row[];
+let periods: Row[];
+let missingCash: boolean;
 
 // Serialises transactions like the row lock on abPayRun would.
 let queue: Promise<unknown> = Promise.resolve();
@@ -24,9 +26,10 @@ const db: Row = {
     update: async ({ data }: Row) => Object.assign(run, data),
   },
   abAccount: {
-    findFirst: async ({ where }: Row) => ({ id: `acct-${where.code ?? where.accountType}` }),
+    findFirst: async ({ where }: Row) => (missingCash && where.code === '1000' ? null : { id: `acct-${where.code ?? where.accountType}` }),
     create: async ({ data }: Row) => ({ id: `acct-${data.code}`, ...data }),
   },
+  abFiscalPeriod: { findUnique: async () => periods[0] ?? null },
   abTenantConfig: { findUnique: async () => ({ jurisdiction: 'us' }) },
   abJournalEntry: { create: async ({ data }: Row) => { journals.push(data); return { id: `je${journals.length}` }; } },
   abPayrollTaxDeposit: {
@@ -52,6 +55,9 @@ const call = () => POST(new Request('http://x', { method: 'POST' }) as never, { 
 beforeEach(() => {
   journals = [];
   deposits = [];
+  periods = [];
+  missingCash = false;
+  db.abJournalEntry.create = async ({ data }: Row) => { journals.push(data); return { id: `je${journals.length}` }; };
   run = {
     id: 'r1', tenantId: 't1', status: 'draft',
     periodStart: new Date('2026-11-01T00:00:00Z'), periodEnd: new Date('2026-11-14T00:00:00Z'), payDate: null,
@@ -76,5 +82,33 @@ describe('process pay run — exactly once', () => {
     db.abJournalEntry.create = async () => { throw Object.assign(new Error('dup'), { code: 'P2002' }); };
     const res = await call();
     expect(res.status).toBe(409);
+  });
+});
+
+describe('process pay run — ledger guards (F4, F7) and employer-tax accrual', () => {
+  it('F4: a run whose period is closed is refused with 422 and stays unpaid', async () => {
+    periods = [{ status: 'closed' }];
+    const res = await call();
+    expect(res.status).toBe(422);
+    expect((await res.json()).code).toBe('period_closed');
+    expect(run.status).toBe('draft');
+    expect(journals).toHaveLength(0);
+  });
+
+  it('F7: with no cash account the run is refused, not marked paid without a journal', async () => {
+    missingCash = true;
+    const res = await call();
+    expect(res.status).toBe(422);
+    expect(run.status).toBe('draft');
+    expect(deposits).toHaveLength(0);
+  });
+
+  it('US: employer FICA match + FUTA are credited to the liability, so it equals the 941 + 940 deposits', async () => {
+    await call();
+    const lines = journals[0].lines.create as Row[];
+    const liabCredit = lines.filter((l) => l.accountId === 'acct-liability').reduce((s, l) => s + l.creditCents, 0);
+    const dep = deposits.filter((d) => d.form === '941' || d.form === '940').reduce((s, d) => s + d.amountCents, 0);
+    expect(liabCredit).toBe(dep);
+    expect(lines.reduce((s, l) => s + l.debitCents - l.creditCents, 0)).toBe(0);
   });
 });
